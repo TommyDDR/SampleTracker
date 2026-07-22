@@ -132,6 +132,11 @@ Func Waveform_Step()
     EndIf
 EndFunc
 
+Func Waveform_GetBucketDur()
+    If $g_iWaveBuckets = 0 Then Return 0
+    Return $g_fWaveDuration / $g_iWaveBuckets
+EndFunc
+
 Func Waveform_Progress()
     If $g_iWaveBuckets = 0 Then Return 0
     Return Int(100 * $g_iWaveCursor / $g_iWaveBuckets)

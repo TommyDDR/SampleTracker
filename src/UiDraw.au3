@@ -235,23 +235,56 @@ Func Ui_DrawWaveform()
     Local $fHalf = $iWaveH / 2 - 2
     _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0], $fMid, $aR[0] + $aR[2], $fMid, $g_hPenWaveLine)
 
-    ; Une ligne verticale min/max par colonne de pixels
-    ; (amplitude multipliée par le zoom Y, clampée à la bande)
     Local $fSecPerPx = $g_fViewDur / $aR[2]
     Local $fScale = $fHalf * $g_fWaveYZoom / 32768
     Local $iClipTop = $iWaveY + 1
     Local $iClipBottom = $iWaveY + $iWaveH - 2
-    Local $x, $iMin, $iMax, $iY1, $iY2
-    For $x = 0 To $aR[2] - 1
-        Waveform_GetColumnPeaks($g_fViewStart + $x * $fSecPerPx, _
-                $g_fViewStart + ($x + 1) * $fSecPerPx, $iMin, $iMax)
-        $iY1 = Int($fMid - $iMax * $fScale)
-        $iY2 = Int($fMid - $iMin * $fScale)
-        If $iY1 < $iClipTop Then $iY1 = $iClipTop
-        If $iY2 > $iClipBottom Then $iY2 = $iClipBottom
-        If $iY2 - $iY1 < 1 Then $iY2 = $iY1 + 1
-        _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0] + $x, $iY1, $aR[0] + $x, $iY2, $g_hPenWave)
-    Next
+    Local $fBucketDur = Waveform_GetBucketDur()
+
+    If $fBucketDur > 0 And $fSecPerPx < $fBucketDur Then
+        ; Zoom fort : moins d'un bucket par colonne — tracé en polylignes
+        ; fines (enveloppes min et max reliées entre buckets), jamais de
+        ; colonnes pleines. Antialiasing temporaire (doc rendu §3).
+        Local $i0 = Int($g_fViewStart / $fBucketDur) - 1
+        Local $i1 = Int(($g_fViewStart + $g_fViewDur) / $fBucketDur) + 1
+        If $i0 < 0 Then $i0 = 0
+        If $i1 > $g_iWaveBuckets - 1 Then $i1 = $g_iWaveBuckets - 1
+        _GDIPlus_GraphicsSetSmoothingMode($g_hGfx, 2)
+        Local $i, $fX, $iYMin, $iYMax
+        Local $fPrevX = 0, $iPrevYMin = 0, $iPrevYMax = 0, $bPrev = False
+        For $i = $i0 To $i1
+            $fX = $aR[0] + (($i + 0.5) * $fBucketDur - $g_fViewStart) / $fSecPerPx
+            $iYMax = Int($fMid - $g_aWaveMax[$i] * $fScale)
+            $iYMin = Int($fMid - $g_aWaveMin[$i] * $fScale)
+            If $iYMax < $iClipTop Then $iYMax = $iClipTop
+            If $iYMax > $iClipBottom Then $iYMax = $iClipBottom
+            If $iYMin < $iClipTop Then $iYMin = $iClipTop
+            If $iYMin > $iClipBottom Then $iYMin = $iClipBottom
+            If $bPrev Then
+                _GDIPlus_GraphicsDrawLine($g_hGfx, $fPrevX, $iPrevYMax, $fX, $iYMax, $g_hPenWave)
+                If $iYMin <> $iYMax Or $iPrevYMin <> $iPrevYMax Then _
+                        _GDIPlus_GraphicsDrawLine($g_hGfx, $fPrevX, $iPrevYMin, $fX, $iYMin, $g_hPenWave)
+            EndIf
+            $fPrevX = $fX
+            $iPrevYMin = $iYMin
+            $iPrevYMax = $iYMax
+            $bPrev = True
+        Next
+        _GDIPlus_GraphicsSetSmoothingMode($g_hGfx, 0) ; restaurer (doc rendu §3)
+    Else
+        ; Une ligne verticale min/max par colonne de pixels
+        Local $x, $iMin, $iMax, $iY1, $iY2
+        For $x = 0 To $aR[2] - 1
+            Waveform_GetColumnPeaks($g_fViewStart + $x * $fSecPerPx, _
+                    $g_fViewStart + ($x + 1) * $fSecPerPx, $iMin, $iMax)
+            $iY1 = Int($fMid - $iMax * $fScale)
+            $iY2 = Int($fMid - $iMin * $fScale)
+            If $iY1 < $iClipTop Then $iY1 = $iClipTop
+            If $iY2 > $iClipBottom Then $iY2 = $iClipBottom
+            If $iY2 - $iY1 < 1 Then $iY2 = $iY1 + 1
+            _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0] + $x, $iY1, $aR[0] + $x, $iY2, $g_hPenWave)
+        Next
+    EndIf
 
     Ui_DrawRuler($aR[0], $aR[1], $aR[2], $iRulerH)
     ; Indicateur de zoom amplitude
