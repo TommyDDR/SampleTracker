@@ -26,6 +26,15 @@ Global $g_aSampleFiles[0] ; noms de fichiers (0-based), triés
 Global $g_iHoverButton = -1     ; index bouton survolé, -1 sinon
 Global $g_sUiCacheKey = ""      ; clé du cache UI plein écran (§7.3 du doc rendu)
 
+; Interactions waveform (phase 3)
+Global $g_iWheelDelta = 0       ; accumulé par WM_MOUSEWHEEL, consommé dans la boucle
+Global $g_bWaveDragging = False
+Global $g_iDragStartX = 0
+Global $g_fDragStartView = 0
+Global $g_hLastClickTimer = 0   ; détection double-clic
+Global $g_iLastClickX = -1000
+Global $g_iLastClickY = -1000
+
 ; Message de statut (barre du bas)
 Global $g_sStatusText = ""
 Global $g_iStatusKind = 0       ; 0 info, 1 succès, 2 erreur

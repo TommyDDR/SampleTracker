@@ -50,6 +50,8 @@ Global $g_hBrushAnalyzeHover = 0
 Global $g_hBrushWaveBg = 0
 Global $g_hPenBorder = 0
 Global $g_hPenWaveLine = 0
+Global $g_hPenWave = 0
+Global $g_hPenRuler = 0
 Global $g_hFmtLeft = 0
 Global $g_hFmtCenter = 0
 Global $g_hFmtRight = 0
@@ -81,6 +83,8 @@ Func Ui_Startup()
 
     $g_hPenBorder = _GDIPlus_PenCreate($UI_COLOR_BORDER, 1)
     $g_hPenWaveLine = _GDIPlus_PenCreate($UI_COLOR_WAVE_LINE, 1)
+    $g_hPenWave = _GDIPlus_PenCreate($UI_COLOR_ACCENT, 1)
+    $g_hPenRuler = _GDIPlus_PenCreate($UI_COLOR_MUTED, 1)
 
     $g_hFmtLeft = _GDIPlus_StringFormatCreate($UI_GDIP_NOWRAP)
     _GDIPlus_StringFormatSetAlign($g_hFmtLeft, 0)
@@ -123,6 +127,7 @@ Func Ui_BuildCacheKey()
     If $g_bExtracting Then $iExtractPhase = Mod(Int(TimerDiff($g_hExtractTimer) / 400), 4)
     Return $g_iRenderW & "|" & $g_iRenderH & "|" & $g_iHoverButton & "|" _
             & $g_sSourcePath & "|" & $g_sSourceWav & "|" & $g_fSourceDuration & "|" & $iExtractPhase & "|" _
+            & $g_iWaveVersion & "|" & Waveform_Progress() & "|" & $g_fViewStart & "|" & $g_fViewDur & "|" _
             & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
             & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus
 EndFunc
@@ -201,17 +206,80 @@ Func Ui_DrawSourceZone()
     EndIf
     Ui_DrawText($sInfo, $g_hFontSmall, _
             $aR[0] + 14, $aR[1] + 46, $aR[2] - 28, 16, $hInfoBrush, $g_hFmtLeft)
-    ; Emplacement waveform (phase 3)
-    Local $iWaveY = $aR[1] + 68
-    Local $iWaveH = $aR[1] + $aR[3] - 12 - $iWaveY
-    If $iWaveH > 10 Then
-        _GDIPlus_GraphicsFillRect($g_hGfx, $aR[0] + 14, $iWaveY, $aR[2] - 28, $iWaveH, $g_hBrushWaveBg)
-        _GDIPlus_GraphicsDrawRect($g_hGfx, $aR[0] + 14, $iWaveY, $aR[2] - 28 - 1, $iWaveH - 1, $g_hPenBorder)
-        _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0] + 14, $iWaveY + $iWaveH / 2, _
-                $aR[0] + 14 + $aR[2] - 28, $iWaveY + $iWaveH / 2, $g_hPenWaveLine)
-        Ui_DrawText("Waveform — phase 3", $g_hFontSmall, $aR[0] + 14, $iWaveY, _
-                $aR[2] - 28, $iWaveH, $g_hBrushMuted, $g_hFmtCenter)
+    ; Bande waveform : règle + pics
+    Ui_DrawWaveform()
+EndFunc
+
+Func Ui_DrawWaveform()
+    Local $aR = $g_aRectWave
+    If $aR[3] < 24 Then Return
+    _GDIPlus_GraphicsFillRect($g_hGfx, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushWaveBg)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $aR[0], $aR[1], $aR[2] - 1, $aR[3] - 1, $g_hPenBorder)
+
+    If $g_bWaveComputing Then
+        Ui_DrawText("Calcul de la waveform… " & Waveform_Progress() & " %", $g_hFontSmall, _
+                $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushAccent, $g_hFmtCenter)
+        Return
     EndIf
+    If Not $g_bWaveReady Then
+        _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0], $aR[1] + $aR[3] / 2, _
+                $aR[0] + $aR[2], $aR[1] + $aR[3] / 2, $g_hPenWaveLine)
+        Return
+    EndIf
+
+    Local $iRulerH = 18
+    Local $iWaveY = $aR[1] + $iRulerH
+    Local $iWaveH = $aR[3] - $iRulerH
+    Local $fMid = $iWaveY + $iWaveH / 2
+    Local $fHalf = $iWaveH / 2 - 2
+    _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0], $fMid, $aR[0] + $aR[2], $fMid, $g_hPenWaveLine)
+
+    ; Une ligne verticale min/max par colonne de pixels
+    Local $fSecPerPx = $g_fViewDur / $aR[2]
+    Local $x, $iMin, $iMax, $iY1, $iY2
+    For $x = 0 To $aR[2] - 1
+        Waveform_GetColumnPeaks($g_fViewStart + $x * $fSecPerPx, _
+                $g_fViewStart + ($x + 1) * $fSecPerPx, $iMin, $iMax)
+        $iY1 = Int($fMid - $iMax * $fHalf / 32768)
+        $iY2 = Int($fMid - $iMin * $fHalf / 32768)
+        If $iY2 - $iY1 < 1 Then $iY2 = $iY1 + 1
+        _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0] + $x, $iY1, $aR[0] + $x, $iY2, $g_hPenWave)
+    Next
+
+    Ui_DrawRuler($aR[0], $aR[1], $aR[2], $iRulerH)
+EndFunc
+
+; Règle temporelle : pas adaptatif (1/2/5), libellés m:ss ou m:ss.cc.
+Func Ui_DrawRuler($iX, $iY, $iW, $iH)
+    Local $aSteps[16] = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600]
+    Local $fPxPerSec = $iW / $g_fViewDur
+    Local $fStep = $aSteps[15]
+    Local $i
+    For $i = 0 To 15
+        If $aSteps[$i] * $fPxPerSec >= 70 Then
+            $fStep = $aSteps[$i]
+            ExitLoop
+        EndIf
+    Next
+    Local $bFine = $fStep < 1
+    Local $fT = Ceiling($g_fViewStart / $fStep) * $fStep
+    Local $iPx
+    While $fT <= $g_fViewStart + $g_fViewDur
+        $iPx = $iX + Int(($fT - $g_fViewStart) * $fPxPerSec)
+        If $iPx >= $iX And $iPx < $iX + $iW Then
+            _GDIPlus_GraphicsDrawLine($g_hGfx, $iPx, $iY + $iH - 5, $iPx, $iY + $iH, $g_hPenRuler)
+            Ui_DrawText(Ui_FormatTime($fT, $bFine), $g_hFontSmall, $iPx + 3, $iY, 80, $iH - 4, _
+                    $g_hBrushMuted, $g_hFmtLeft)
+        EndIf
+        $fT += $fStep
+    WEnd
+EndFunc
+
+Func Ui_FormatTime($fSec, $bFine)
+    Local $iMin = Int($fSec / 60)
+    Local $fS = $fSec - $iMin * 60
+    If $bFine Then Return StringFormat("%d:%05.2f", $iMin, $fS)
+    Return StringFormat("%d:%02d", $iMin, Int($fS + 0.5))
 EndFunc
 
 Func Ui_DrawTimelineZone()
@@ -346,8 +414,12 @@ Func Ui_Dispose()
 
     If $g_hPenBorder <> 0 Then _GDIPlus_PenDispose($g_hPenBorder)
     If $g_hPenWaveLine <> 0 Then _GDIPlus_PenDispose($g_hPenWaveLine)
+    If $g_hPenWave <> 0 Then _GDIPlus_PenDispose($g_hPenWave)
+    If $g_hPenRuler <> 0 Then _GDIPlus_PenDispose($g_hPenRuler)
     $g_hPenBorder = 0
     $g_hPenWaveLine = 0
+    $g_hPenWave = 0
+    $g_hPenRuler = 0
 
     If $g_hFmtLeft <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtLeft)
     If $g_hFmtCenter <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtCenter)

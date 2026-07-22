@@ -45,10 +45,12 @@ AutoIt3.exe SampleTracker.au3
 
 ```
 AutoIt3.exe tests\Phase2Test.au3
+AutoIt3.exe tests\Phase3Test.au3
 ```
 
-Exit 0 = PASS, 1 = FAIL, 2 = SKIP (ffmpeg absent). Génère une tonalité MP4,
-extrait le PCM, vérifie durée et format via l'en-tête WAV.
+Exit 0 = PASS, 1 = FAIL, 2 = SKIP (ffmpeg absent). Phase 2 : extraction MP4 →
+PCM vérifié via l'en-tête WAV. Phase 3 : pics waveform (silence + carré 440 Hz),
+mipmaps, zoom et clamps de vue.
 
 ## Utilisation (phase 1)
 
@@ -57,6 +59,8 @@ extrait le PCM, vérifie durée et format via l'en-tête WAV.
 - Boutons : « Ouvrir source », « Dossier samples ».
 - « Analyser la composition » s'active quand source + bibliothèque sont chargées
   (moteur branché en phase 5).
+- Waveform (phase 3) : calculée en arrière-plan après extraction ; molette = zoom
+  autour du curseur, glisser = déplacement, double-clic = vue complète.
 - `F3` : profiler (temps par section dans le titre de la fenêtre).
 
 Note : le drag & drop depuis l'Explorateur ne fonctionne pas si l'application est

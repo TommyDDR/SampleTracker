@@ -27,6 +27,7 @@ Func Action_LoadSource($sPath)
         Return
     EndIf
     Ffmpeg_Cancel() ; annule une extraction précédente éventuelle
+    Waveform_Reset()
     $g_sSourcePath = $sPath
     $g_sSourceWav = ""
     $g_fSourceDuration = 0
@@ -58,6 +59,7 @@ Func Action_PollExtraction()
     $g_sSourceWav = $g_sWorkDir & "\source.wav"
     $g_fSourceDuration = $fDuration
     $g_iSourceRate = $iRate
+    Waveform_Start($g_sSourceWav) ; calcul des pics en arrière-plan
     Ui_SetStatus(StringFormat("Source prête : %s (%.2f s)", Action_FileName($g_sSourcePath), $fDuration), 1)
 EndFunc
 
