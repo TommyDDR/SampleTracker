@@ -21,6 +21,8 @@
 #include "src\Perf.au3"
 #include "src\Render.au3"
 #include "src\Layout.au3"
+#include "src\Config.au3"
+#include "src\Player.au3"
 #include "src\Ffmpeg.au3"
 #include "src\Wav.au3"
 #include "src\Waveform.au3"
@@ -50,18 +52,20 @@ EndFunc
 Func App_CreateWindow()
     $g_sWorkDir = @TempDir & "\SampleTracker"
     DirCreate($g_sWorkDir)
-    $g_hGui = GUICreate("SampleTracker", 1280, 720, -1, -1, _
+    Config_Load() ; géométrie, hauteurs de zones et dernière session
+    $g_hGui = GUICreate("SampleTracker", $g_iWinW, $g_iWinH, $g_iWinX, $g_iWinY, _
             BitOR($WS_OVERLAPPEDWINDOW, $WS_CLIPCHILDREN))
     GUISetBkColor(0x17171C, $g_hGui)
     GUIRegisterMsg($WM_ERASEBKGND, "App_OnEraseBkgnd")
     GUIRegisterMsg(0x020A, "App_OnMouseWheel") ; WM_MOUSEWHEEL
     Drop_Startup($g_hGui)
-    GUISetState(@SW_SHOW, $g_hGui)
+    GUISetState($g_bWinMax ? @SW_MAXIMIZE : @SW_SHOW, $g_hGui)
 
     Local $aSize = WinGetClientSize($g_hGui)
     Render_Startup($g_hGui, $aSize[0], $aSize[1])
     Layout_Recompute($aSize[0], $aSize[1])
     Ui_Startup()
+    Action_RestoreSession() ; recharge la dernière source / bibliothèque
 EndFunc
 
 ; Anti-scintillement (doc rendu §2) : "déjà effacé", on repeint tout.
@@ -82,6 +86,8 @@ Func App_Loop()
         Action_PollExtraction() ; fin d'extraction ffmpeg (coût nul hors extraction)
         Action_PollEngine()     ; progression/fin du moteur d'analyse
         Waveform_Step()         ; calcul des pics par lots (coût nul hors calcul)
+        Player_Poll()           ; position de lecture + fin de lecture
+        Player_PollSample()     ; libère l'alias de prévisualisation
         App_ProcessWheel()
         App_UpdateDrag()
         Perf_End($PERF_INPUT)
@@ -143,6 +149,20 @@ Func App_UpdateHover()
     $g_iHoverBlock = $iBlock
     $g_iHoverX = $aInfo[0]
     $g_iHoverY = $aInfo[1]
+    ; Sample survolé dans la bibliothèque
+    $g_iHoverSample = Layout_HitSample($aInfo[0], $aInfo[1], Ui_SamplesShownCount())
+    ; Poignée de redimensionnement : curseur double flèche verticale
+    $g_iHoverSplitter = ($g_iDragSplitter <> $SPLIT_NONE) _
+            ? $g_iDragSplitter : Layout_HitSplitter($aInfo[0], $aInfo[1])
+    App_UpdateCursor($g_iHoverSplitter <> $SPLIT_NONE)
+EndFunc
+
+; Bascule le curseur souris entre flèche et double flèche verticale.
+; Ne touche au curseur que sur changement d'état (pas d'appel par frame).
+Func App_UpdateCursor($bSizeNS)
+    If $bSizeNS = $g_bCursorSizeNS Then Return
+    $g_bCursorSizeNS = $bSizeNS
+    GUISetCursor($bSizeNS ? 10 : 16, 1, $g_hGui) ; 10 = SizeNS, 16 = curseur par défaut
 EndFunc
 
 ; Accumule le delta molette (handler de message : rester minimal).
@@ -188,13 +208,30 @@ Func App_ProcessWheel()
             Waveform_ZoomY(1.25 ^ ($iDeltaCtrl / 120))
 EndFunc
 
-; Pan par glisser (poursuivi tant que le bouton reste enfoncé).
+; Glisser en cours : redimensionnement d'une zone, ou pan de la vue.
+; Un glisser de moins de 5 px est traité comme un clic simple au relâchement :
+; il place la tête de lecture au point cliqué.
 Func App_UpdateDrag()
+    ; Redimensionnement des zones par poignée
+    If $g_iDragSplitter <> $SPLIT_NONE Then
+        Local $aSplit = GUIGetCursorInfo($g_hGui)
+        If @error Then Return
+        If $aSplit[2] = 0 Then
+            $g_iDragSplitter = $SPLIT_NONE
+            Return
+        EndIf
+        Layout_DragSplitter($g_iDragSplitter, $aSplit[1])
+        Return
+    EndIf
+
     If Not $g_bWaveDragging Then Return
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
     If $aInfo[2] = 0 Then
         $g_bWaveDragging = False
+        ; Clic sans déplacement : positionner la tête de lecture
+        If Abs($aInfo[0] - $g_iDragStartX) < 5 And $g_bSrcOpen Then _
+                Player_SetCursor($g_fViewStart + ($aInfo[0] - $g_iDragRefX) * $g_fViewDur / $g_iDragRefW)
         Return
     EndIf
     Local $fNewStart = $g_fDragStartView - ($aInfo[0] - $g_iDragStartX) * $g_fViewDur / $g_iDragRefW
@@ -204,12 +241,31 @@ EndFunc
 Func App_OnPrimaryDown()
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
+
+    ; Poignée de redimensionnement (prioritaire sur tout le reste)
+    Local $iSplit = Layout_HitSplitter($aInfo[0], $aInfo[1])
+    If $iSplit <> $SPLIT_NONE Then
+        $g_iDragSplitter = $iSplit
+        Return
+    EndIf
+
+    ; Sample de la bibliothèque : prévisualisation
+    Local $iSample = Layout_HitSample($aInfo[0], $aInfo[1], Ui_SamplesShownCount())
+    If $iSample >= 0 Then
+        Action_PreviewSample($g_aSampleFiles[$iSample])
+        Return
+    EndIf
+
     ; Waveform / blocs timeline : double-clic = vue complète, sinon début de pan
     Local $aRect = 0
     If $g_bWaveReady And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
         $aRect = $g_aRectWave
     ElseIf $g_bWaveReady And $g_iTlBlocks > 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectTlBlocks) Then
         $aRect = $g_aRectTlBlocks
+        ; Clic sur un bloc de détection : prévisualiser le sample correspondant
+        If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks _
+                And $g_aTlBlocks[$g_iHoverBlock][3] = 0 Then _
+                Action_PreviewSample($g_aTlBlocks[$g_iHoverBlock][6])
     EndIf
     If IsArray($aRect) Then
         If $g_hLastClickTimer <> 0 And TimerDiff($g_hLastClickTimer) < 400 _
@@ -224,6 +280,7 @@ Func App_OnPrimaryDown()
         $g_bWaveDragging = True
         $g_iDragStartX = $aInfo[0]
         $g_fDragStartView = $g_fViewStart
+        $g_iDragRefX = $aRect[0]
         $g_iDragRefW = $aRect[2]
         Return
     EndIf
@@ -234,6 +291,10 @@ Func App_OnPrimaryDown()
             Action_OpenSamplesDialog()
         Case $BTN_ANALYZE
             Action_Analyze()
+        Case $BTN_PLAY
+            Player_TogglePlayPause()
+        Case $BTN_STOP
+            Player_Stop()
     EndSwitch
 EndFunc
 
@@ -258,6 +319,8 @@ EndFunc
 ; --- Arrêt -----------------------------------------------------------------
 
 Func App_Shutdown()
+    Config_Save() ; avant GUIDelete : la géométrie doit encore être lisible
+    Player_Shutdown()
     Ffmpeg_Cancel()
     Engine_Cancel()
     Render_RunDisposers()

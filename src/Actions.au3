@@ -28,6 +28,7 @@ Func Action_LoadSource($sPath)
     EndIf
     Ffmpeg_Cancel() ; annule une extraction précédente éventuelle
     Action_AbortAnalysis()
+    Player_CloseSource()
     Waveform_Reset()
     $g_sSourcePath = $sPath
     $g_sSourceWav = ""
@@ -61,6 +62,7 @@ Func Action_PollExtraction()
     $g_fSourceDuration = $fDuration
     $g_iSourceRate = $iRate
     Waveform_Start($g_sSourceWav) ; calcul des pics en arrière-plan
+    Player_OpenSource($g_sSourceWav)
     Ui_SetStatus(StringFormat("Source prête : %s (%.2f s)", Action_FileName($g_sSourcePath), $fDuration), 1)
 EndFunc
 
@@ -160,6 +162,29 @@ Func Action_AbortAnalysis()
     Timeline_Clear()
     $g_iHoverBlock = -1
     $g_iResultsVersion += 1
+EndFunc
+
+; --- Lecture audio ---------------------------------------------------------
+
+; Prévisualise un sample de la bibliothèque (chemin relatif au dossier).
+Func Action_PreviewSample($sRelName)
+    If $g_sSamplesDir = "" Or $sRelName = "" Then Return
+    Player_PlaySample($g_sSamplesDir & "\" & $sRelName)
+    If @error Then
+        Ui_SetStatus("Lecture impossible : " & $sRelName, 2)
+        Return
+    EndIf
+    Ui_SetStatus("Lecture : " & $sRelName, 0)
+EndFunc
+
+; --- Restauration de session (INI) -----------------------------------------
+
+; Recharge la dernière source et la dernière bibliothèque si elles existent
+; encore. Silencieux : une entrée obsolète est ignorée, pas d'erreur affichée.
+Func Action_RestoreSession()
+    If $g_sLastSamples <> "" And StringInStr(FileGetAttrib($g_sLastSamples), "D") Then _
+            Action_LoadSamplesDir($g_sLastSamples)
+    If $g_sLastSource <> "" And FileExists($g_sLastSource) Then Action_LoadSource($g_sLastSource)
 EndFunc
 
 ; --- Helpers ---------------------------------------------------------------

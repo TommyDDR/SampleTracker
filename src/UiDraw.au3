@@ -64,6 +64,9 @@ Global $g_hBrushTooltipBg = 0
 Global $g_hPenBlockHover = 0
 Global $g_hPenUnknown = 0
 Global $g_hPenAccent = 0
+Global $g_hPenPlayhead = 0
+Global $g_hBrushPlayhead = 0
+Global $g_hBrushSplitter = 0
 
 Func Ui_Startup()
     $g_hFamilyUi = _GDIPlus_FontFamilyCreate("Segoe UI")
@@ -107,6 +110,9 @@ Func Ui_Startup()
     $g_hPenBlockHover = _GDIPlus_PenCreate(0xFFE8E8F0, 2)
     $g_hPenUnknown = _GDIPlus_PenCreate($UI_COLOR_ERROR, 1)
     $g_hPenAccent = _GDIPlus_PenCreate($UI_COLOR_ACCENT, 1)
+    $g_hPenPlayhead = _GDIPlus_PenCreate(0xFFF0C040, 1)
+    $g_hBrushPlayhead = _GDIPlus_BrushCreateSolid(0xFFF0C040)
+    $g_hBrushSplitter = _GDIPlus_BrushCreateSolid($UI_COLOR_ACCENT)
 
     $g_hFmtLeft = _GDIPlus_StringFormatCreate($UI_GDIP_NOWRAP)
     _GDIPlus_StringFormatSetAlign($g_hFmtLeft, 0)
@@ -155,7 +161,12 @@ Func Ui_BuildCacheKey()
             & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus & "|" _
             & $g_bAnalyzing & "|" & $g_iEngineProgress & "|" & $g_iResultsVersion & "|" _
             & $g_sEngineLastLine & "|" & $g_iHoverBlock & "|" _
-            & ($g_iHoverBlock >= 0 ? $g_iHoverX & ":" & $g_iHoverY : "")
+            & ($g_iHoverBlock >= 0 ? $g_iHoverX & ":" & $g_iHoverY : "") & "|" _
+            & $g_iHoverSplitter & "|" & $g_iDragSplitter & "|" _
+            & $g_iLayoutSourceH & "|" & $g_iLayoutSamplesH & "|" _
+            & $g_iHoverSample & "|" & $g_sSmpPlaying & "|" _
+            & $g_bSrcOpen & "|" & $g_bSrcPlaying & "|" _
+            & Round(Player_Position(), 2) ; tête de lecture : 50 redraws/s max
 EndFunc
 
 Func Ui_DrawFrame()
@@ -173,7 +184,22 @@ Func Ui_Redraw()
     Ui_DrawSourceZone()
     Ui_DrawTimelineZone()
     Ui_DrawSamplesZone()
+    Ui_DrawSplitters()
     Ui_DrawStatusBar()
+EndFunc
+
+; Poignées de redimensionnement : trait discret quand survolé ou tiré.
+Func Ui_DrawSplitters()
+    Local $iActive = ($g_iDragSplitter <> $SPLIT_NONE) ? $g_iDragSplitter : $g_iHoverSplitter
+    If $iActive = $SPLIT_NONE Then Return
+    Local $iY
+    If $iActive = $SPLIT_SOURCE Then
+        $iY = $g_aRectSource[1] + $g_aRectSource[3] + Int($LAYOUT_MARGIN / 2)
+    Else
+        $iY = $g_aRectSamples[1] - Int($LAYOUT_MARGIN / 2)
+    EndIf
+    _GDIPlus_GraphicsFillRect($g_hGfx, $LAYOUT_MARGIN, $iY - 1, _
+            $g_iRenderW - 2 * $LAYOUT_MARGIN, 2, $g_hBrushSplitter)
 EndFunc
 
 Func Ui_DrawTopBar()
@@ -192,7 +218,13 @@ Func Ui_DrawButton($iIndex)
     Local $iY = $g_aRectButtons[$iIndex][1]
     Local $iW = $g_aRectButtons[$iIndex][2]
     Local $iH = $g_aRectButtons[$iIndex][3]
-    Local $bEnabled = ($iIndex <> $BTN_ANALYZE) Or (App_IsAnalyzeReady() And Not $g_bAnalyzing)
+    Local $bEnabled = True
+    Switch $iIndex
+        Case $BTN_ANALYZE
+            $bEnabled = App_IsAnalyzeReady() And Not $g_bAnalyzing
+        Case $BTN_PLAY, $BTN_STOP
+            $bEnabled = $g_bSrcOpen
+    EndSwitch
     Local $hFill = $g_hBrushButton
     Local $hText = $g_hBrushText
     If Not $bEnabled Then
@@ -205,7 +237,10 @@ Func Ui_DrawButton($iIndex)
     EndIf
     _GDIPlus_GraphicsFillRect($g_hGfx, $iX, $iY, $iW, $iH, $hFill)
     _GDIPlus_GraphicsDrawRect($g_hGfx, $iX, $iY, $iW - 1, $iH - 1, $g_hPenBorder)
-    Ui_DrawText($g_aButtonLabels[$iIndex], $g_hFontSmall, $iX, $iY, $iW, $iH, $hText, $g_hFmtCenter)
+    ; Le bouton Lecture bascule en Pause pendant la lecture
+    Local $sLabel = $g_aButtonLabels[$iIndex]
+    If $iIndex = $BTN_PLAY And $g_bSrcPlaying Then $sLabel = "Pause"
+    Ui_DrawText($sLabel, $g_hFontSmall, $iX, $iY, $iW, $iH, $hText, $g_hFmtCenter)
 EndFunc
 
 Func Ui_DrawSourceZone()
@@ -343,6 +378,18 @@ Func Ui_DrawWaveform()
         Ui_DrawText(StringFormat("Y ×%.1f", $g_fWaveYZoom), $g_hFontSmall, _
                 $aR[0], $aR[1] + $iRulerH + 2, $aR[2] - 6, 14, $g_hBrushMuted, $g_hFmtRight)
     EndIf
+    ; Tête de lecture par-dessus la waveform
+    Ui_DrawPlayhead($aR, $g_fViewStart, $g_fViewDur)
+EndFunc
+
+; Trait vertical de la tête de lecture + petit repère en haut.
+Func Ui_DrawPlayhead($aRect, $fViewStart, $fViewDur)
+    If Not $g_bSrcOpen Or $fViewDur <= 0 Then Return
+    Local $fPos = Player_Position()
+    If $fPos < $fViewStart Or $fPos > $fViewStart + $fViewDur Then Return
+    Local $iX = $aRect[0] + Int(($fPos - $fViewStart) * $aRect[2] / $fViewDur)
+    _GDIPlus_GraphicsDrawLine($g_hGfx, $iX, $aRect[1], $iX, $aRect[1] + $aRect[3], $g_hPenPlayhead)
+    _GDIPlus_GraphicsFillRect($g_hGfx, $iX - 3, $aRect[1], 7, 5, $g_hBrushPlayhead)
 EndFunc
 
 ; Règle temporelle : pas adaptatif (1/2/5), libellés m:ss ou m:ss.cc.
@@ -489,6 +536,8 @@ Func Ui_DrawTimelineTracks()
         EndIf
     Next
 
+    Ui_DrawPlayhead($aB, $fViewStart, $fViewDur)
+
     ; Tooltip du bloc survolé (dessiné en dernier, par-dessus tout)
     If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks Then Ui_DrawBlockTooltip()
 EndFunc
@@ -537,27 +586,28 @@ Func Ui_DrawSamplesZone()
     Ui_DrawText(Ui_EllipsizePath($g_sSamplesDir, 110), $g_hFontSmall, _
             $aR[0] + 14, $aR[1] + 26, $aR[2] - 28, 16, $g_hBrushMuted, $g_hFmtLeft)
 
-    ; Grille de noms (colonnes puis lignes)
-    Local $iInnerX = $aR[0] + 14
-    Local $iInnerY = $aR[1] + 48
-    Local $iInnerW = $aR[2] - 28
-    Local $iInnerH = $aR[1] + $aR[3] - 10 - $iInnerY
-    Local $iColW = 240
-    Local $iRowH = 20
-    Local $iCols = Int($iInnerW / $iColW)
-    If $iCols < 1 Then $iCols = 1
-    Local $iRows = Int($iInnerH / $iRowH)
-    If $iRows < 1 Then $iRows = 1
-    Local $iMax = $iCols * $iRows
-    Local $iShown = $iCount
-    If $iCount > $iMax Then $iShown = $iMax - 1 ; réserver une case pour "+ N autres"
-    Local $i, $iCol, $iRow
+    ; Grille de noms (colonnes puis lignes) — géométrie partagée avec le hit-test
+    Local $iInnerX = $g_aRectSamplesList[0]
+    Local $iInnerY = $g_aRectSamplesList[1]
+    Local $iCols, $iRows, $iColW, $iRowH
+    Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH)
+    Local $iShown = Ui_SamplesShownCount()
+    Local $i, $iCol, $iRow, $hBrush
     For $i = 0 To $iShown - 1
         $iCol = Int($i / $iRows)
         $iRow = Mod($i, $iRows)
+        $hBrush = $g_hBrushText
+        If $i = $g_iHoverSample Then
+            ; survol : fond discret, le clic déclenche la prévisualisation
+            _GDIPlus_GraphicsFillRect($g_hGfx, $iInnerX + $iCol * $iColW - 2, _
+                    $iInnerY + $iRow * $iRowH, $iColW - 6, $iRowH, $g_hBrushButtonHover)
+            $hBrush = $g_hBrushAccent
+        EndIf
+        If $g_sSmpPlaying <> "" And $g_sSmpPlaying = $g_sSamplesDir & "\" & $g_aSampleFiles[$i] Then _
+                $hBrush = $g_hBrushOk
         Ui_DrawText("• " & Ui_EllipsizeEnd($g_aSampleFiles[$i], 32), $g_hFontSmall, _
                 $iInnerX + $iCol * $iColW, $iInnerY + $iRow * $iRowH, $iColW - 10, $iRowH, _
-                $g_hBrushText, $g_hFmtLeft)
+                $hBrush, $g_hFmtLeft)
     Next
     If $iCount > $iShown Then
         $iCol = Int($iShown / $iRows)
@@ -566,6 +616,17 @@ Func Ui_DrawSamplesZone()
                 $iInnerX + $iCol * $iColW, $iInnerY + $iRow * $iRowH, $iColW - 10, $iRowH, _
                 $g_hBrushMuted, $g_hFmtLeft)
     EndIf
+EndFunc
+
+; Nombre de samples réellement affichés dans la grille (le reste est résumé).
+Func Ui_SamplesShownCount()
+    Local $iCount = UBound($g_aSampleFiles)
+    If $iCount = 0 Then Return 0
+    Local $iCols, $iRows, $iColW, $iRowH
+    Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH)
+    Local $iMax = $iCols * $iRows
+    If $iCount > $iMax Then Return $iMax - 1 ; une case réservée à « + N autres »
+    Return $iCount
 EndFunc
 
 Func Ui_DrawStatusBar()
@@ -664,11 +725,17 @@ Func Ui_Dispose()
     If $g_hPenBlockHover <> 0 Then _GDIPlus_PenDispose($g_hPenBlockHover)
     If $g_hPenUnknown <> 0 Then _GDIPlus_PenDispose($g_hPenUnknown)
     If $g_hPenAccent <> 0 Then _GDIPlus_PenDispose($g_hPenAccent)
+    If $g_hPenPlayhead <> 0 Then _GDIPlus_PenDispose($g_hPenPlayhead)
+    If $g_hBrushPlayhead <> 0 Then _GDIPlus_BrushDispose($g_hBrushPlayhead)
+    If $g_hBrushSplitter <> 0 Then _GDIPlus_BrushDispose($g_hBrushSplitter)
     $g_hBrushUnknownFill = 0
     $g_hBrushTooltipBg = 0
     $g_hPenBlockHover = 0
     $g_hPenUnknown = 0
     $g_hPenAccent = 0
+    $g_hPenPlayhead = 0
+    $g_hBrushPlayhead = 0
+    $g_hBrushSplitter = 0
 
     If $g_hFmtLeft <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtLeft)
     If $g_hFmtCenter <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtCenter)

@@ -49,6 +49,7 @@ AutoIt3.exe tests\Phase2Test.au3
 AutoIt3.exe tests\Phase3Test.au3
 AutoIt3.exe tests\Phase5Test.au3
 AutoIt3.exe tests\Phase6Test.au3
+AutoIt3.exe tests\PrefsTest.au3
 python engine\test_engine.py
 ```
 
@@ -86,7 +87,31 @@ Précision mesurée (mix synthétique) : position < 10 ms, gain < 0.3 dB (WAV)
   aussi actifs sur la zone de blocs).
 - Waveform (phase 3) : calculée en arrière-plan après extraction ; molette = zoom
   autour du curseur, glisser = déplacement, double-clic = vue complète.
+- Lecture : boutons « Lecture / Pause » et « Stop » dans la barre du haut.
+  Un clic dans la waveform (ou la timeline) place la tête de lecture ;
+  « Stop » y revient. Le trait jaune suit la lecture.
+- Écouter un sample : clic sur un nom dans la bibliothèque, ou sur un bloc de
+  détection dans la timeline. La prévisualisation n'interrompt pas la lecture
+  de la source (canaux MCI distincts).
+- Redimensionner les zones : glisser l'espace entre deux blocs (le curseur
+  passe en double flèche au survol). Les hauteurs sont conservées.
 - `F3` : profiler (temps par section dans le titre de la fenêtre).
+
+## Préférences (`SampleTracker.ini`)
+
+Créé à côté du script au premier lancement (non versionné), relu au démarrage :
+
+```ini
+[window]
+x, y, w, h, maximized      ; géométrie (position hors écran ignorée)
+[layout]
+source_h, samples_h        ; hauteurs des zones ajustables
+[session]
+source, samples            ; dernière source et dernière bibliothèque
+```
+
+La dernière session est rechargée automatiquement ; une entrée pointant vers un
+fichier ou un dossier disparu est ignorée silencieusement.
 
 Note : le drag & drop depuis l'Explorateur ne fonctionne pas si l'application est
 lancée en administrateur (isolation UIPI de Windows).
