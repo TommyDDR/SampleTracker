@@ -43,8 +43,50 @@ Main()
 Func Main()
     _GDIPlus_Startup()
     App_CreateWindow()
+    ; Mode diagnostic : --shot <fichier.png> [--analyze]
+    ; rend un état stabilisé, enregistre le backbuffer, puis quitte.
+    If $CmdLine[0] >= 2 And $CmdLine[1] = "--shot" Then
+        App_ShotMode($CmdLine[2], _App_HasArg("--analyze"))
+        App_Shutdown()
+        Return
+    EndIf
     App_Loop()
     App_Shutdown()
+EndFunc
+
+Func _App_HasArg($sArg)
+    Local $i
+    For $i = 1 To $CmdLine[0]
+        If $CmdLine[$i] = $sArg Then Return True
+    Next
+    Return False
+EndFunc
+
+; Fait tourner la boucle jusqu'à ce que tout soit prêt (extraction, waveform,
+; analyse si demandée), puis enregistre le backbuffer.
+Func App_ShotMode($sPath, $bAnalyze)
+    Local $hTimeout = TimerInit()
+    Local $bAnalyzeStarted = False
+    While TimerDiff($hTimeout) < 120000
+        App_HandleEvents()
+        Action_PollExtraction()
+        Action_PollEngine()
+        Waveform_Step()
+        Ui_DrawFrame()
+        Render_Present()
+        If $bAnalyze And Not $bAnalyzeStarted And App_IsAnalyzeReady() Then
+            Action_Analyze()
+            $bAnalyzeStarted = True
+        EndIf
+        Local $bReady = ($g_sSourceWav <> "" And $g_bWaveReady And Not $g_bExtracting)
+        If $bAnalyze Then $bReady = $bReady And $bAnalyzeStarted And Not $g_bAnalyzing
+        If $bReady Then ExitLoop
+        Sleep(20)
+    WEnd
+    Ui_Redraw() ; forcer un rendu complet, cache ignoré
+    Render_Present()
+    Render_SaveBackbuffer($sPath)
+    ConsoleWrite((@error ? "echec capture" : "capture : " & $sPath) & @CRLF)
 EndFunc
 
 ; --- Fenêtre ---------------------------------------------------------------
@@ -162,7 +204,7 @@ EndFunc
 Func App_UpdateCursor($bSizeNS)
     If $bSizeNS = $g_bCursorSizeNS Then Return
     $g_bCursorSizeNS = $bSizeNS
-    GUISetCursor($bSizeNS ? 10 : 16, 1, $g_hGui) ; 10 = SizeNS, 16 = curseur par défaut
+    GUISetCursor($bSizeNS ? 11 : 2, 1, $g_hGui) ; 10 = SizeNS, 16 = curseur par défaut
 EndFunc
 
 ; Accumule le delta molette (handler de message : rester minimal).

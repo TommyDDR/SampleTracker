@@ -97,6 +97,23 @@ Précision mesurée (mix synthétique) : position < 10 ms, gain < 0.3 dB (WAV)
   passe en double flèche au survol). Les hauteurs sont conservées.
 - `F3` : profiler (temps par section dans le titre de la fenêtre).
 
+La waveform et la timeline partagent la même colonne de libellés à gauche et la
+même échelle temporelle : un bloc de détection tombe exactement sous la portion
+d'onde correspondante. Tout tracé est borné à sa zone par clipping GDI+ (rien ne
+peut déborder sur les panneaux voisins).
+
+## Capture de diagnostic
+
+Le rendu allant directement dans le DC de la fenêtre, une capture d'écran
+classique ne voit rien. Mode dédié :
+
+```
+AutoIt3.exe SampleTracker.au3 --shot vue.png [--analyze]
+```
+
+Recharge la dernière session, attend que tout soit prêt (extraction, waveform,
+analyse si `--analyze`), enregistre le backbuffer en PNG, puis quitte.
+
 ## Préférences (`SampleTracker.ini`)
 
 Créé à côté du script au premier lancement (non versionné), relu au démarrage :

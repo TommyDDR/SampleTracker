@@ -54,6 +54,20 @@ Func Render_Present()
             $g_hMemDC, 0, 0, $RENDER_SRCCOPY)
 EndFunc
 
+; Enregistre le backbuffer courant en PNG (contrôle visuel / diagnostic).
+; Le rendu allant directement dans le DC de la fenêtre, une capture d'écran
+; classique ne voit rien : on relit donc la DIB.
+Func Render_SaveBackbuffer($sPath)
+    If $g_hDib = 0 Then Return SetError(1, 0, 0)
+    Local $hBitmap = _GDIPlus_BitmapCreateFromHBITMAP($g_hDib)
+    If @error Then Return SetError(2, 0, 0)
+    _GDIPlus_ImageSaveToFile($hBitmap, $sPath)
+    Local $iErr = @error
+    _GDIPlus_ImageDispose($hBitmap)
+    If $iErr Then Return SetError(3, 0, 0)
+    Return 1
+EndFunc
+
 Func Render_DisposeTargets()
     If $g_hGfx <> 0 Then
         _GDIPlus_GraphicsDispose($g_hGfx) ; toujours le Graphics AVANT son bitmap

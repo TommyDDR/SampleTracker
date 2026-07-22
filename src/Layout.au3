@@ -43,6 +43,9 @@ Global $g_aRectSource[4]
 Global $g_aRectWave[4]      ; bande waveform (règle + pics) dans la zone source
 Global $g_aRectTimeline[4]
 Global $g_aRectTlBlocks[4]  ; zone des blocs (timeline moins colonne labels)
+; Largeur de la colonne de libellés, commune à la waveform et à la timeline :
+; les deux zones de tracé démarrent exactement au même x et partagent la même
+; échelle temporelle (alignement vertical parfait entre onde et blocs).
 Global Const $TL_LABEL_W = 150
 Global $g_aRectSamples[4]
 Global $g_aRectSamplesList[4] ; grille des noms (zone cliquable)
@@ -109,16 +112,19 @@ Func Layout_Recompute($iW, $iH)
     _Layout_SetRect($g_aRectSamplesList, $m + 14, $iSamplesY + 48, _
             $iW - 2 * $m - 28, $g_iLayoutSamplesH - 48 - 10)
 
+    ; Largeur de tracé commune aux deux zones (même origine, même échelle)
+    Local $iTrackX = $m + $TL_LABEL_W
+    Local $iTrackW = $iW - 2 * $m - $TL_LABEL_W - 12
+
     Local $iSourceY = $LAYOUT_TOPBAR_H + $m
     _Layout_SetRect($g_aRectSource, $m, $iSourceY, $iW - 2 * $m, $g_iLayoutSourceH)
-    _Layout_SetRect($g_aRectWave, $m + 14, $iSourceY + 68, $iW - 2 * $m - 28, $g_iLayoutSourceH - 68 - 12)
+    _Layout_SetRect($g_aRectWave, $iTrackX, $iSourceY + 30, $iTrackW, $g_iLayoutSourceH - 30 - 12)
 
     Local $iTimelineY = $iSourceY + $g_iLayoutSourceH + $m
     Local $iTimelineH = $iSamplesY - $m - $iTimelineY
     If $iTimelineH < 40 Then $iTimelineH = 40
     _Layout_SetRect($g_aRectTimeline, $m, $iTimelineY, $iW - 2 * $m, $iTimelineH)
-    _Layout_SetRect($g_aRectTlBlocks, $m + $TL_LABEL_W, $iTimelineY + 24, _
-            $iW - 2 * $m - $TL_LABEL_W - 12, $iTimelineH - 24 - 10)
+    _Layout_SetRect($g_aRectTlBlocks, $iTrackX, $iTimelineY + 24, $iTrackW, $iTimelineH - 24 - 10)
 EndFunc
 
 Func _Layout_SetRect(ByRef $aRect, $iX, $iY, $iW, $iH)

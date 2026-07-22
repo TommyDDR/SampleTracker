@@ -252,23 +252,52 @@ Func Ui_DrawSourceZone()
                 $g_hFontNormal, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushMuted, $g_hFmtCenterWrap)
         Return
     EndIf
-    Ui_DrawText(Action_FileName($g_sSourcePath), $g_hFontNormal, _
-            $aR[0] + 14, $aR[1] + 24, $aR[2] - 28, 22, $g_hBrushAccent, $g_hFmtLeft)
-    ; Ligne d'état : extraction en cours / infos PCM / chemin
-    Local $sInfo = Ui_EllipsizePath($g_sSourcePath, 110)
+
+    ; Colonne de libellés (même largeur que celle de la timeline) : nom du
+    ; fichier et informations, la bande d'onde commence après le séparateur.
+    Local $iColX = $aR[0] + 14
+    Local $iColW = $TL_LABEL_W - 24
+    Ui_DrawText(Ui_EllipsizeEnd(Action_FileName($g_sSourcePath), 20), $g_hFontNormal, _
+            $iColX, $aR[1] + 26, $iColW, 20, $g_hBrushAccent, $g_hFmtLeft)
+    Local $sInfo = ""
     Local $hInfoBrush = $g_hBrushMuted
     If $g_bExtracting Then
         Local $iDots = Mod(Int(TimerDiff($g_hExtractTimer) / 400), 4)
-        $sInfo = "Extraction audio en cours" & StringLeft("...", $iDots)
+        $sInfo = "Extraction" & StringLeft("...", $iDots)
         $hInfoBrush = $g_hBrushAccent
     ElseIf $g_sSourceWav <> "" Then
-        $sInfo = StringFormat("Durée : %.2f s — PCM %.1f kHz mono 16 bits — %s", _
-                $g_fSourceDuration, $g_iSourceRate / 1000, Ui_EllipsizePath($g_sSourcePath, 70))
+        $sInfo = StringFormat("%.2f s — %.1f kHz", $g_fSourceDuration, $g_iSourceRate / 1000)
     EndIf
-    Ui_DrawText($sInfo, $g_hFontSmall, _
-            $aR[0] + 14, $aR[1] + 46, $aR[2] - 28, 16, $hInfoBrush, $g_hFmtLeft)
+    Ui_DrawText($sInfo, $g_hFontSmall, $iColX, $aR[1] + 46, $iColW, 16, $hInfoBrush, $g_hFmtLeft)
+    Ui_DrawText("mono 16 bits", $g_hFontSmall, $iColX, $aR[1] + 62, $iColW, 16, _
+            $g_hBrushMuted, $g_hFmtLeft)
+    If $g_fWaveYZoom > 1 Then
+        Ui_DrawText(StringFormat("amplitude ×%.1f", $g_fWaveYZoom), $g_hFontSmall, _
+                $iColX, $aR[1] + 82, $iColW, 16, $g_hBrushMuted, $g_hFmtLeft)
+    EndIf
+
+    ; Séparateur vertical entre la colonne de libellés et la bande d'onde
+    Ui_DrawTrackSeparator($aR)
+
     ; Bande waveform : règle + pics
     Ui_DrawWaveform()
+EndFunc
+
+; Trait vertical séparant la colonne de libellés de la zone de tracé.
+Func Ui_DrawTrackSeparator($aZoneRect)
+    Local $iX = $aZoneRect[0] + $TL_LABEL_W - 6
+    _GDIPlus_GraphicsDrawLine($g_hGfx, $iX, $aZoneRect[1] + 6, _
+            $iX, $aZoneRect[1] + $aZoneRect[3] - 6, $g_hPenBorder)
+EndFunc
+
+; Limite tout tracé au rectangle donné : rien ne peut déborder de la zone
+; (remplace le découpage en fenêtres enfants, et garde un seul blit par frame).
+Func Ui_SetClip($aRect)
+    _GDIPlus_GraphicsSetClipRect($g_hGfx, $aRect[0], $aRect[1], $aRect[2], $aRect[3])
+EndFunc
+
+Func Ui_ResetClip()
+    _GDIPlus_GraphicsResetClip($g_hGfx)
 EndFunc
 
 Func Ui_DrawWaveform()
@@ -293,6 +322,8 @@ Func Ui_DrawWaveform()
     Local $iWaveH = $aR[3] - $iRulerH
     Local $fMid = $iWaveY + $iWaveH / 2
     Local $fHalf = $iWaveH / 2 - 2
+    ; Tout le tracé qui suit est borné à la bande : aucun débordement possible
+    Ui_SetClip($aR)
     _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0], $fMid, $aR[0] + $aR[2], $fMid, $g_hPenWaveLine)
 
     Local $fSecPerPx = $g_fViewDur / $aR[2]
@@ -373,13 +404,9 @@ Func Ui_DrawWaveform()
     EndIf
 
     Ui_DrawRuler($aR[0], $aR[1], $aR[2], $iRulerH)
-    ; Indicateur de zoom amplitude
-    If $g_fWaveYZoom > 1 Then
-        Ui_DrawText(StringFormat("Y ×%.1f", $g_fWaveYZoom), $g_hFontSmall, _
-                $aR[0], $aR[1] + $iRulerH + 2, $aR[2] - 6, 14, $g_hBrushMuted, $g_hFmtRight)
-    EndIf
     ; Tête de lecture par-dessus la waveform
     Ui_DrawPlayhead($aR, $g_fViewStart, $g_fViewDur)
+    Ui_ResetClip()
 EndFunc
 
 ; Trait vertical de la tête de lecture + petit repère en haut.
@@ -405,14 +432,26 @@ Func Ui_DrawRuler($iX, $iY, $iW, $iH)
         EndIf
     Next
     Local $bFine = $fStep < 1
-    Local $fT = Ceiling($g_fViewStart / $fStep) * $fStep
-    Local $iPx
+    ; Démarrer une graduation avant le bord gauche : son libellé reste lisible,
+    ; collé au bord, au lieu de disparaître dès que le trait sort de la vue.
+    Local $fT = Ceiling($g_fViewStart / $fStep) * $fStep - $fStep
+    Local $iLabelW = $bFine ? 52 : 34
+    Local $iNextFreeX = $iX ; borne anti-chevauchement des libellés
+    Local $iPx, $iLabelX
     While $fT <= $g_fViewStart + $g_fViewDur
-        $iPx = $iX + Int(($fT - $g_fViewStart) * $fPxPerSec)
-        If $iPx >= $iX And $iPx < $iX + $iW Then
-            _GDIPlus_GraphicsDrawLine($g_hGfx, $iPx, $iY + $iH - 5, $iPx, $iY + $iH, $g_hPenRuler)
-            Ui_DrawText(Ui_FormatTime($fT, $bFine), $g_hFontSmall, $iPx + 3, $iY, 80, $iH - 4, _
-                    $g_hBrushMuted, $g_hFmtLeft)
+        If $fT >= -0.0001 Then
+            $iPx = $iX + Int(($fT - $g_fViewStart) * $fPxPerSec)
+            If $iPx >= $iX And $iPx < $iX + $iW Then _
+                    _GDIPlus_GraphicsDrawLine($g_hGfx, $iPx, $iY + $iH - 5, $iPx, $iY + $iH, $g_hPenRuler)
+            ; Libellé maintenu dans la bande : celui de la graduation sortie à
+            ; gauche reste collé au bord, sans jamais recouvrir le suivant.
+            $iLabelX = $iPx + 3
+            If $iLabelX < $iX + 2 Then $iLabelX = $iX + 2
+            If $iLabelX >= $iNextFreeX And $iLabelX < $iX + $iW Then
+                Ui_DrawText(Ui_FormatTime($fT, $bFine), $g_hFontSmall, $iLabelX, $iY, 80, $iH - 4, _
+                        $g_hBrushMuted, $g_hFmtLeft)
+                $iNextFreeX = $iLabelX + $iLabelW
+            EndIf
         EndIf
         $fT += $fStep
     WEnd
@@ -476,10 +515,14 @@ Func Ui_DrawTimelineTracks()
     Timeline_LayoutRows($aB, $iRowH, $iVisible)
     Local $fPxPerSec = $aB[2] / $fViewDur
 
+    ; Séparateur vertical entre la liste des pistes et la zone des blocs
+    Ui_DrawTrackSeparator($g_aRectTimeline)
+
     ; Lignes de pistes + labels
     Local $iLane, $iY
     For $iLane = 0 To $iVisible - 1
         $iY = $aB[1] + $iLane * $iRowH
+        If $iY + $iRowH > $aB[1] + $aB[3] Then ExitLoop
         _GDIPlus_GraphicsDrawLine($g_hGfx, $aB[0] - $TL_LABEL_W + 8, $iY + $iRowH, _
                 $aB[0] + $aB[2], $iY + $iRowH, $g_hPenBorder)
         ; pastille couleur + nom de piste
@@ -499,7 +542,9 @@ Func Ui_DrawTimelineTracks()
                 $aB[0] - $TL_LABEL_W + 10, $aB[1] + $aB[3] - 16, $TL_LABEL_W, 16, $g_hBrushMuted, $g_hFmtLeft)
     EndIf
 
-    ; Blocs
+    ; Blocs — bornés à la zone (aucun débordement sur la colonne de libellés
+    ; ni hors du panneau)
+    Ui_SetClip($aB)
     Local $i, $iX1, $iX2, $iBY, $iBH, $iHatch
     For $i = 0 To $g_iTlBlocks - 1
         $iLane = $g_aTlBlocks[$i][0]
@@ -537,8 +582,9 @@ Func Ui_DrawTimelineTracks()
     Next
 
     Ui_DrawPlayhead($aB, $fViewStart, $fViewDur)
+    Ui_ResetClip()
 
-    ; Tooltip du bloc survolé (dessiné en dernier, par-dessus tout)
+    ; Tooltip du bloc survolé : hors clip, dessiné en dernier par-dessus tout
     If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks Then Ui_DrawBlockTooltip()
 EndFunc
 
