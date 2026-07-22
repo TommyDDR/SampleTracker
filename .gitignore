@@ -8,6 +8,9 @@
 /work/
 *.json.tmp
 
+# Préférences locales (généré au premier lancement)
+SampleTracker.ini
+
 # Windows
 Thumbs.db
 Desktop.ini

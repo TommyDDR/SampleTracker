@@ -35,12 +35,35 @@ Global $g_fDragStartView = 0
 Global $g_hLastClickTimer = 0   ; détection double-clic
 Global $g_iLastClickX = -1000
 Global $g_iLastClickY = -1000
+Global $g_iDragRefX = 0         ; origine x du rect où le drag a commencé
 Global $g_iDragRefW = 1         ; largeur du rect où le drag a commencé (sec/px)
 
 ; Survol timeline (phase 6)
 Global $g_iHoverBlock = -1
 Global $g_iHoverX = 0
 Global $g_iHoverY = 0
+
+; Redimensionnement des zones par poignée
+Global $g_iHoverSplitter = -1   ; $SPLIT_NONE
+Global $g_iDragSplitter = -1
+Global $g_iCursorCurrent = -1   ; curseur souris appliqué (évite les appels inutiles)
+
+; Identifiants GUISetCursor, relevés empiriquement (tests\CursorTest.au3) :
+; la table ne correspond pas aux constantes système IDC_*, d'où ces noms.
+Global Const $CURSOR_HAND = 0    ; main : zone cliquable
+Global Const $CURSOR_ARROW = 2   ; flèche standard
+Global Const $CURSOR_SIZENS = 11 ; double flèche verticale : poignée
+
+; Survol bibliothèque (prévisualisation au clic)
+Global $g_iHoverSample = -1
+Global $g_iSamplesScroll = 0    ; première ligne affichée dans la grille
+Global $g_bSamplesMore = False  ; ligne « + N autres… » survolée
+
+; Survol d'un libellé de piste dans la timeline (nom complet en infobulle)
+Global $g_iHoverLane = -1
+
+; Dernier sample joué : reste mis en évidence jusqu'au suivant
+Global $g_sLastPlayed = ""
 
 ; Analyse (phase 5)
 Global $g_bAnalyzing = False

@@ -21,6 +21,8 @@
 #include "src\Perf.au3"
 #include "src\Render.au3"
 #include "src\Layout.au3"
+#include "src\Config.au3"
+#include "src\Player.au3"
 #include "src\Ffmpeg.au3"
 #include "src\Wav.au3"
 #include "src\Waveform.au3"
@@ -41,8 +43,59 @@ Main()
 Func Main()
     _GDIPlus_Startup()
     App_CreateWindow()
+    ; Mode diagnostic : --shot <fichier.png> [--analyze]
+    ; rend un état stabilisé, enregistre le backbuffer, puis quitte.
+    If $CmdLine[0] >= 2 And $CmdLine[1] = "--shot" Then
+        App_ShotMode($CmdLine[2], _App_HasArg("--analyze"))
+        App_Shutdown()
+        Return
+    EndIf
     App_Loop()
     App_Shutdown()
+EndFunc
+
+Func _App_HasArg($sArg)
+    Local $i
+    For $i = 1 To $CmdLine[0]
+        If $CmdLine[$i] = $sArg Then Return True
+    Next
+    Return False
+EndFunc
+
+; Fait tourner la boucle jusqu'à ce que tout soit prêt (extraction, waveform,
+; analyse si demandée), puis enregistre le backbuffer.
+Func App_ShotMode($sPath, $bAnalyze)
+    Local $hTimeout = TimerInit()
+    Local $bAnalyzeStarted = False
+    While TimerDiff($hTimeout) < 120000
+        App_HandleEvents()
+        Action_PollExtraction()
+        Action_PollEngine()
+        Waveform_Step()
+        Ui_DrawFrame()
+        Render_Present()
+        If $bAnalyze And Not $bAnalyzeStarted And App_IsAnalyzeReady() Then
+            Action_Analyze()
+            $bAnalyzeStarted = True
+        EndIf
+        Local $bReady = ($g_sSourceWav <> "" And $g_bWaveReady And Not $g_bExtracting)
+        If $bAnalyze Then $bReady = $bReady And $bAnalyzeStarted And Not $g_bAnalyzing
+        If $bReady Then ExitLoop
+        Sleep(20)
+    WEnd
+    ; --played <nom> : simule la mise en évidence du dernier sample joué
+    ; --hover <x> <y> : simule le survol (contrôle des infobulles)
+    Local $i
+    For $i = 1 To $CmdLine[0] - 1
+        If $CmdLine[$i] = "--played" Then $g_sLastPlayed = $CmdLine[$i + 1]
+        If $CmdLine[$i] = "--hover" And $i + 2 <= $CmdLine[0] Then
+            App_UpdateHoverAt(Number($CmdLine[$i + 1]), Number($CmdLine[$i + 2]))
+        EndIf
+    Next
+    Ui_Redraw() ; forcer un rendu complet, cache ignoré
+    Render_Present()
+    Render_SaveBackbuffer($sPath)
+    ConsoleWrite((@error ? "echec capture" : "capture : " & $sPath) & @CRLF)
 EndFunc
 
 ; --- Fenêtre ---------------------------------------------------------------
@@ -50,18 +103,20 @@ EndFunc
 Func App_CreateWindow()
     $g_sWorkDir = @TempDir & "\SampleTracker"
     DirCreate($g_sWorkDir)
-    $g_hGui = GUICreate("SampleTracker", 1280, 720, -1, -1, _
+    Config_Load() ; géométrie, hauteurs de zones et dernière session
+    $g_hGui = GUICreate("SampleTracker", $g_iWinW, $g_iWinH, $g_iWinX, $g_iWinY, _
             BitOR($WS_OVERLAPPEDWINDOW, $WS_CLIPCHILDREN))
     GUISetBkColor(0x17171C, $g_hGui)
     GUIRegisterMsg($WM_ERASEBKGND, "App_OnEraseBkgnd")
     GUIRegisterMsg(0x020A, "App_OnMouseWheel") ; WM_MOUSEWHEEL
     Drop_Startup($g_hGui)
-    GUISetState(@SW_SHOW, $g_hGui)
+    GUISetState($g_bWinMax ? @SW_MAXIMIZE : @SW_SHOW, $g_hGui)
 
     Local $aSize = WinGetClientSize($g_hGui)
     Render_Startup($g_hGui, $aSize[0], $aSize[1])
     Layout_Recompute($aSize[0], $aSize[1])
     Ui_Startup()
+    Action_RestoreSession() ; recharge la dernière source / bibliothèque
 EndFunc
 
 ; Anti-scintillement (doc rendu §2) : "déjà effacé", on repeint tout.
@@ -82,6 +137,8 @@ Func App_Loop()
         Action_PollExtraction() ; fin d'extraction ffmpeg (coût nul hors extraction)
         Action_PollEngine()     ; progression/fin du moteur d'analyse
         Waveform_Step()         ; calcul des pics par lots (coût nul hors calcul)
+        Player_Poll()           ; position de lecture + fin de lecture
+        Player_PollSample()     ; libère l'alias de prévisualisation
         App_ProcessWheel()
         App_UpdateDrag()
         Perf_End($PERF_INPUT)
@@ -131,18 +188,69 @@ EndFunc
 Func App_UpdateHover()
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
-    Local $iHit = Layout_HitButton($aInfo[0], $aInfo[1])
+    App_UpdateHoverAt($aInfo[0], $aInfo[1])
+EndFunc
+
+; Recalcule tout l'état de survol pour un point donné (séparé de la lecture
+; de la souris : réutilisable pour le contrôle visuel en mode --shot).
+Func App_UpdateHoverAt($iX, $iY)
+    Local $iHit = Layout_HitButton($iX, $iY)
     If $iHit <> $g_iHoverButton Then $g_iHoverButton = $iHit
     ; Bloc timeline survolé (tooltip)
     Local $iBlock = -1
-    If $g_iTlBlocks > 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectTlBlocks) Then
+    If $g_iTlBlocks > 0 And Layout_PointInRect($iX, $iY, $g_aRectTlBlocks) Then
         Local $fViewStart, $fViewDur
         Ui_GetTimelineView($fViewStart, $fViewDur)
-        $iBlock = Timeline_HitBlock($aInfo[0], $aInfo[1], $g_aRectTlBlocks, $fViewStart, $fViewDur)
+        $iBlock = Timeline_HitBlock($iX, $iY, $g_aRectTlBlocks, $fViewStart, $fViewDur)
     EndIf
     $g_iHoverBlock = $iBlock
-    $g_iHoverX = $aInfo[0]
-    $g_iHoverY = $aInfo[1]
+    $g_iHoverX = $iX
+    $g_iHoverY = $iY
+    ; Sample survolé dans la bibliothèque
+    $g_iHoverSample = Layout_HitSample($iX, $iY, UBound($g_aSampleFiles))
+    $g_bSamplesMore = App_HitSamplesMore($iX, $iY)
+    ; Libellé de piste survolé (infobulle avec le nom complet)
+    $g_iHoverLane = -1
+    If $g_iTlLanes > 0 And $g_iHoverBlock = -1 Then
+        Local $iRowH, $iVisible
+        Timeline_LayoutRows($g_aRectTlBlocks, $iRowH, $iVisible)
+        $g_iHoverLane = Layout_HitLaneLabel($iX, $iY, $iVisible, $iRowH)
+    EndIf
+    ; Poignée de redimensionnement (prioritaire pour le choix du curseur)
+    $g_iHoverSplitter = ($g_iDragSplitter <> $SPLIT_NONE) _
+            ? $g_iDragSplitter : Layout_HitSplitter($iX, $iY)
+    App_UpdateCursorForPoint($iX, $iY)
+EndFunc
+
+; Ligne « + N autres… » de la bibliothèque (au-dessus de la grille).
+Func App_HitSamplesMore($iX, $iY)
+    If Layout_SampleMaxScroll(UBound($g_aSampleFiles)) <= 0 Then Return False
+    Return $iX >= $g_aRectSamplesList[0] And $iX < $g_aRectSamplesList[0] + $g_aRectSamplesList[2] _
+            And $iY >= $g_aRectSamplesList[1] - 20 And $iY < $g_aRectSamplesList[1]
+EndFunc
+
+; Applique un curseur souris. Ne touche au curseur que sur changement
+; d'état (pas d'appel Windows par frame).
+Func App_SetCursor($iCursor)
+    If $iCursor = $g_iCursorCurrent Then Return
+    $g_iCursorCurrent = $iCursor
+    GUISetCursor($iCursor, 1, $g_hGui)
+EndFunc
+
+; Choisit le curseur selon la zone survolée : poignée de redimensionnement,
+; élément cliquable (waveform, timeline, libellés de pistes, boutons, samples),
+; sinon flèche.
+Func App_UpdateCursorForPoint($iX, $iY)
+    If $g_iHoverSplitter <> $SPLIT_NONE Then
+        App_SetCursor($CURSOR_SIZENS)
+        Return
+    EndIf
+    Local $bClickable = ($g_iHoverButton <> -1) _
+            Or ($g_iHoverSample >= 0) Or $g_bSamplesMore _
+            Or ($g_iHoverLane >= 0) _
+            Or ($g_bWaveReady And Layout_PointInRect($iX, $iY, $g_aRectWave)) _
+            Or ($g_iTlBlocks > 0 And Layout_PointInRect($iX, $iY, $g_aRectTlBlocks))
+    App_SetCursor($bClickable ? $CURSOR_HAND : $CURSOR_ARROW)
 EndFunc
 
 ; Accumule le delta molette (handler de message : rester minimal).
@@ -167,9 +275,15 @@ Func App_ProcessWheel()
     Local $iDeltaCtrl = $g_iWheelDeltaCtrl
     $g_iWheelDelta = 0
     $g_iWheelDeltaCtrl = 0
-    If Not $g_bWaveReady Then Return
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
+    ; Molette sur la bibliothèque : défilement de la liste
+    If Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectSamplesList) Then
+        $g_iSamplesScroll -= Int(($iDelta + $iDeltaCtrl) / 120) * 3
+        Layout_ClampSamplesScroll(UBound($g_aSampleFiles))
+        Return
+    EndIf
+    If Not $g_bWaveReady Then Return
     ; Zoom X actif sur la waveform ET sur la zone de blocs timeline (vue partagée)
     Local $aRect = 0
     If Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
@@ -188,13 +302,30 @@ Func App_ProcessWheel()
             Waveform_ZoomY(1.25 ^ ($iDeltaCtrl / 120))
 EndFunc
 
-; Pan par glisser (poursuivi tant que le bouton reste enfoncé).
+; Glisser en cours : redimensionnement d'une zone, ou pan de la vue.
+; Un glisser de moins de 5 px est traité comme un clic simple au relâchement :
+; il place la tête de lecture au point cliqué.
 Func App_UpdateDrag()
+    ; Redimensionnement des zones par poignée
+    If $g_iDragSplitter <> $SPLIT_NONE Then
+        Local $aSplit = GUIGetCursorInfo($g_hGui)
+        If @error Then Return
+        If $aSplit[2] = 0 Then
+            $g_iDragSplitter = $SPLIT_NONE
+            Return
+        EndIf
+        Layout_DragSplitter($g_iDragSplitter, $aSplit[1])
+        Return
+    EndIf
+
     If Not $g_bWaveDragging Then Return
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
     If $aInfo[2] = 0 Then
         $g_bWaveDragging = False
+        ; Clic sans déplacement : positionner la tête de lecture
+        If Abs($aInfo[0] - $g_iDragStartX) < 5 And $g_bSrcOpen Then _
+                Player_SetCursor($g_fViewStart + ($aInfo[0] - $g_iDragRefX) * $g_fViewDur / $g_iDragRefW)
         Return
     EndIf
     Local $fNewStart = $g_fDragStartView - ($aInfo[0] - $g_iDragStartX) * $g_fViewDur / $g_iDragRefW
@@ -204,12 +335,45 @@ EndFunc
 Func App_OnPrimaryDown()
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
+
+    ; Poignée de redimensionnement (prioritaire sur tout le reste)
+    Local $iSplit = Layout_HitSplitter($aInfo[0], $aInfo[1])
+    If $iSplit <> $SPLIT_NONE Then
+        $g_iDragSplitter = $iSplit
+        Return
+    EndIf
+
+    ; « + N autres… » : défile d'une page pour atteindre le reste de la liste
+    If App_HitSamplesMore($aInfo[0], $aInfo[1]) Then
+        Local $iCols, $iRows, $iColW, $iRowH2
+        Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH2)
+        $g_iSamplesScroll += $iRows
+        Layout_ClampSamplesScroll(UBound($g_aSampleFiles))
+        Return
+    EndIf
+
+    ; Sample de la bibliothèque : prévisualisation
+    Local $iSample = Layout_HitSample($aInfo[0], $aInfo[1], UBound($g_aSampleFiles))
+    If $iSample >= 0 Then
+        Action_PreviewSample($g_aSampleFiles[$iSample])
+        Return
+    EndIf
+
     ; Waveform / blocs timeline : double-clic = vue complète, sinon début de pan
     Local $aRect = 0
     If $g_bWaveReady And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
         $aRect = $g_aRectWave
     ElseIf $g_bWaveReady And $g_iTlBlocks > 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectTlBlocks) Then
         $aRect = $g_aRectTlBlocks
+        ; Clic sur un bloc de détection : prévisualiser le sample correspondant
+        If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks _
+                And $g_aTlBlocks[$g_iHoverBlock][3] = 0 Then _
+                Action_PreviewSample($g_aTlBlocks[$g_iHoverBlock][6])
+    ElseIf $g_iHoverLane >= 0 And $g_iHoverLane < $g_iTlLanes _
+            And $g_aTlLaneKind[$g_iHoverLane] = 0 Then
+        ; Clic sur un libellé de piste : même prévisualisation
+        Action_PreviewSample($g_aTlLaneName[$g_iHoverLane])
+        Return
     EndIf
     If IsArray($aRect) Then
         If $g_hLastClickTimer <> 0 And TimerDiff($g_hLastClickTimer) < 400 _
@@ -224,6 +388,7 @@ Func App_OnPrimaryDown()
         $g_bWaveDragging = True
         $g_iDragStartX = $aInfo[0]
         $g_fDragStartView = $g_fViewStart
+        $g_iDragRefX = $aRect[0]
         $g_iDragRefW = $aRect[2]
         Return
     EndIf
@@ -234,6 +399,10 @@ Func App_OnPrimaryDown()
             Action_OpenSamplesDialog()
         Case $BTN_ANALYZE
             Action_Analyze()
+        Case $BTN_PLAY
+            Player_TogglePlayPause()
+        Case $BTN_STOP
+            Player_Stop()
     EndSwitch
 EndFunc
 
@@ -258,6 +427,8 @@ EndFunc
 ; --- Arrêt -----------------------------------------------------------------
 
 Func App_Shutdown()
+    Config_Save() ; avant GUIDelete : la géométrie doit encore être lisible
+    Player_Shutdown()
     Ffmpeg_Cancel()
     Engine_Cancel()
     Render_RunDisposers()
