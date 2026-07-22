@@ -140,6 +140,7 @@ Func Action_PollEngine()
         If @error Then
             Ui_SetStatus("Résultats illisibles (TSV) : " & $g_sEngineTsv, 2)
         Else
+            Timeline_Rebuild()
             Ui_SetStatus(StringFormat("Analyse terminée en %.1f s : %d détection(s), %d inconnu(s)", _
                     TimerDiff($g_hAnalyzeTimer) / 1000, $g_iDetections, $g_iUnknowns), 1)
         EndIf
@@ -156,6 +157,8 @@ Func Action_AbortAnalysis()
         $g_bAnalyzing = False
     EndIf
     Engine_ClearResults()
+    Timeline_Clear()
+    $g_iHoverBlock = -1
     $g_iResultsVersion += 1
 EndFunc
 
