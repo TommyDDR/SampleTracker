@@ -21,9 +21,10 @@
 #include "src\Perf.au3"
 #include "src\Render.au3"
 #include "src\Layout.au3"
-#include "src\UiDraw.au3"
 #include "src\Ffmpeg.au3"
 #include "src\Wav.au3"
+#include "src\Waveform.au3"
+#include "src\UiDraw.au3"
 #include "src\Actions.au3"
 #include "src\Drop.au3"
 
@@ -51,6 +52,7 @@ Func App_CreateWindow()
             BitOR($WS_OVERLAPPEDWINDOW, $WS_CLIPCHILDREN))
     GUISetBkColor(0x17171C, $g_hGui)
     GUIRegisterMsg($WM_ERASEBKGND, "App_OnEraseBkgnd")
+    GUIRegisterMsg(0x020A, "App_OnMouseWheel") ; WM_MOUSEWHEEL
     Drop_Startup($g_hGui)
     GUISetState(@SW_SHOW, $g_hGui)
 
@@ -76,6 +78,9 @@ Func App_Loop()
         App_HandleEvents()
         App_HandlePerfKey()
         Action_PollExtraction() ; fin d'extraction ffmpeg (coût nul hors extraction)
+        Waveform_Step()         ; calcul des pics par lots (coût nul hors calcul)
+        App_ProcessWheel()
+        App_UpdateDrag()
         Perf_End($PERF_INPUT)
 
         If Not BitAND(WinGetState($g_hGui), 16) Then ; pas minimisée
@@ -127,9 +132,71 @@ Func App_UpdateHover()
     If $iHit <> $g_iHoverButton Then $g_iHoverButton = $iHit
 EndFunc
 
+; Accumule le delta molette (handler de message : rester minimal).
+; Ctrl enfoncé (MK_CONTROL dans le low word) = zoom amplitude.
+Func App_OnMouseWheel($hWnd, $iMsg, $wParam, $lParam)
+    #forceref $hWnd, $iMsg, $lParam
+    Local $iDelta = BitAND(BitShift($wParam, 16), 0xFFFF)
+    If $iDelta > 32767 Then $iDelta -= 65536
+    If BitAND($wParam, 0x0008) Then ; MK_CONTROL
+        $g_iWheelDeltaCtrl += $iDelta
+    Else
+        $g_iWheelDelta += $iDelta
+    EndIf
+    Return 0
+EndFunc
+
+; Zoom autour du curseur (consommé chaque frame).
+; Molette = zoom temporel (X), Ctrl+molette = zoom amplitude (Y).
+Func App_ProcessWheel()
+    If $g_iWheelDelta = 0 And $g_iWheelDeltaCtrl = 0 Then Return
+    Local $iDelta = $g_iWheelDelta
+    Local $iDeltaCtrl = $g_iWheelDeltaCtrl
+    $g_iWheelDelta = 0
+    $g_iWheelDeltaCtrl = 0
+    If Not $g_bWaveReady Then Return
+    Local $aInfo = GUIGetCursorInfo($g_hGui)
+    If @error Then Return
+    If Not Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then Return
+    If $iDelta <> 0 Then
+        Local $fAnchor = $g_fViewStart + ($aInfo[0] - $g_aRectWave[0]) * $g_fViewDur / $g_aRectWave[2]
+        Waveform_Zoom(0.8 ^ ($iDelta / 120), $fAnchor)
+    EndIf
+    If $iDeltaCtrl <> 0 Then Waveform_ZoomY(1.25 ^ ($iDeltaCtrl / 120))
+EndFunc
+
+; Pan par glisser (poursuivi tant que le bouton reste enfoncé).
+Func App_UpdateDrag()
+    If Not $g_bWaveDragging Then Return
+    Local $aInfo = GUIGetCursorInfo($g_hGui)
+    If @error Then Return
+    If $aInfo[2] = 0 Then
+        $g_bWaveDragging = False
+        Return
+    EndIf
+    Local $fNewStart = $g_fDragStartView - ($aInfo[0] - $g_iDragStartX) * $g_fViewDur / $g_aRectWave[2]
+    Waveform_SetView($fNewStart, $g_fViewDur)
+EndFunc
+
 Func App_OnPrimaryDown()
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
+    ; Waveform : double-clic = vue complète, sinon début de pan
+    If $g_bWaveReady And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
+        If $g_hLastClickTimer <> 0 And TimerDiff($g_hLastClickTimer) < 400 _
+                And Abs($aInfo[0] - $g_iLastClickX) < 5 And Abs($aInfo[1] - $g_iLastClickY) < 5 Then
+            Waveform_ResetView()
+            $g_hLastClickTimer = 0
+            Return
+        EndIf
+        $g_hLastClickTimer = TimerInit()
+        $g_iLastClickX = $aInfo[0]
+        $g_iLastClickY = $aInfo[1]
+        $g_bWaveDragging = True
+        $g_iDragStartX = $aInfo[0]
+        $g_fDragStartView = $g_fViewStart
+        Return
+    EndIf
     Switch Layout_HitButton($aInfo[0], $aInfo[1])
         Case $BTN_OPEN_SOURCE
             Action_OpenSourceDialog()

@@ -12,7 +12,7 @@ Global Const $BTN_COUNT = 3
 
 Global Const $LAYOUT_MARGIN = 10
 Global Const $LAYOUT_TOPBAR_H = 56
-Global Const $LAYOUT_SOURCE_H = 150
+Global Const $LAYOUT_SOURCE_H = 200
 Global Const $LAYOUT_SAMPLES_H = 190
 Global Const $LAYOUT_STATUS_H = 26
 
@@ -22,6 +22,7 @@ Global $g_aRectButtons[3][4]
 
 Global $g_aRectTopBar[4]
 Global $g_aRectSource[4]
+Global $g_aRectWave[4]   ; bande waveform (règle + pics) dans la zone source
 Global $g_aRectTimeline[4]
 Global $g_aRectSamples[4]
 Global $g_aRectStatus[4]
@@ -54,6 +55,7 @@ Func Layout_Recompute($iW, $iH)
 
     Local $iSourceY = $LAYOUT_TOPBAR_H + $m
     _Layout_SetRect($g_aRectSource, $m, $iSourceY, $iW - 2 * $m, $LAYOUT_SOURCE_H)
+    _Layout_SetRect($g_aRectWave, $m + 14, $iSourceY + 68, $iW - 2 * $m - 28, $LAYOUT_SOURCE_H - 68 - 12)
 
     Local $iTimelineY = $iSourceY + $LAYOUT_SOURCE_H + $m
     Local $iTimelineH = $iSamplesY - $m - $iTimelineY
@@ -66,6 +68,11 @@ Func _Layout_SetRect(ByRef $aRect, $iX, $iY, $iW, $iH)
     $aRect[1] = $iY
     $aRect[2] = $iW
     $aRect[3] = $iH
+EndFunc
+
+Func Layout_PointInRect($iX, $iY, $aRect)
+    Return $iX >= $aRect[0] And $iX < $aRect[0] + $aRect[2] _
+            And $iY >= $aRect[1] And $iY < $aRect[1] + $aRect[3]
 EndFunc
 
 ; Retourne l'index du bouton sous (x, y), ou -1.
