@@ -5,7 +5,7 @@
 ; ---------------------------------------------------------------------------
 
 Func App_IsAnalyzeReady()
-    Return $g_sSourcePath <> "" And UBound($g_aSampleFiles) > 0
+    Return $g_sSourceWav <> "" And UBound($g_aSampleFiles) > 0
 EndFunc
 
 ; --- Fichier source --------------------------------------------------------
@@ -26,8 +26,39 @@ Func Action_LoadSource($sPath)
         Ui_SetStatus("Fichier introuvable : " & $sPath, 2)
         Return
     EndIf
+    Ffmpeg_Cancel() ; annule une extraction précédente éventuelle
     $g_sSourcePath = $sPath
-    Ui_SetStatus("Source chargée : " & Action_FileName($sPath), 1)
+    $g_sSourceWav = ""
+    $g_fSourceDuration = 0
+    $g_iSourceRate = 0
+    Ffmpeg_StartExtract($sPath, $g_sWorkDir & "\source.wav", $g_sWorkDir & "\ffmpeg.log")
+    If @error Then
+        Ui_SetStatus("ffmpeg introuvable : placer ffmpeg.exe dans bin\ ou dans le PATH", 2)
+        $g_sSourcePath = ""
+        Return
+    EndIf
+    $g_bExtracting = True
+    $g_hExtractTimer = TimerInit()
+    Ui_SetStatus("Extraction audio : " & Action_FileName($sPath), 0)
+EndFunc
+
+; Appelé chaque frame : détecte la fin de l'extraction ffmpeg.
+Func Action_PollExtraction()
+    If Not $g_bExtracting Then Return
+    If Ffmpeg_IsRunning() Then Return
+    $g_bExtracting = False
+    $g_iFfmpegPid = 0
+    Local $iRate, $iChannels, $iBits
+    Local $fDuration = Wav_ReadInfo($g_sWorkDir & "\source.wav", $iRate, $iChannels, $iBits)
+    If @error Or $fDuration <= 0 Then
+        Ui_SetStatus("Échec extraction audio : " & Ffmpeg_LastErrorLine(), 2)
+        $g_sSourcePath = ""
+        Return
+    EndIf
+    $g_sSourceWav = $g_sWorkDir & "\source.wav"
+    $g_fSourceDuration = $fDuration
+    $g_iSourceRate = $iRate
+    Ui_SetStatus(StringFormat("Source prête : %s (%.2f s)", Action_FileName($g_sSourcePath), $fDuration), 1)
 EndFunc
 
 ; --- Bibliothèque de samples -----------------------------------------------

@@ -22,6 +22,8 @@
 #include "src\Render.au3"
 #include "src\Layout.au3"
 #include "src\UiDraw.au3"
+#include "src\Ffmpeg.au3"
+#include "src\Wav.au3"
 #include "src\Actions.au3"
 #include "src\Drop.au3"
 
@@ -43,6 +45,8 @@ EndFunc
 ; --- Fenêtre ---------------------------------------------------------------
 
 Func App_CreateWindow()
+    $g_sWorkDir = @TempDir & "\SampleTracker"
+    DirCreate($g_sWorkDir)
     $g_hGui = GUICreate("SampleTracker", 1280, 720, -1, -1, _
             BitOR($WS_OVERLAPPEDWINDOW, $WS_CLIPCHILDREN))
     GUISetBkColor(0x17171C, $g_hGui)
@@ -71,6 +75,7 @@ Func App_Loop()
         Perf_Begin($PERF_INPUT)
         App_HandleEvents()
         App_HandlePerfKey()
+        Action_PollExtraction() ; fin d'extraction ffmpeg (coût nul hors extraction)
         Perf_End($PERF_INPUT)
 
         If Not BitAND(WinGetState($g_hGui), 16) Then ; pas minimisée
@@ -156,6 +161,7 @@ EndFunc
 ; --- Arrêt -----------------------------------------------------------------
 
 Func App_Shutdown()
+    Ffmpeg_Cancel()
     Render_RunDisposers()
     Render_Shutdown($g_hGui)
     _GDIPlus_Shutdown()
