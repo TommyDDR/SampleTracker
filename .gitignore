@@ -1,0 +1,13 @@
+# Binaires / sorties
+*.exe
+/build/
+/tmp/
+*.log
+
+# Fichiers temporaires d'analyse (phases futures)
+/work/
+*.json.tmp
+
+# Windows
+Thumbs.db
+Desktop.ini
