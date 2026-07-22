@@ -226,6 +226,8 @@ def main() -> int:
     parser.add_argument("--max-iter", type=int, default=200)
     parser.add_argument("--min-gain", type=float, default=0.02)
     parser.add_argument("--floor-db", type=float, default=-40.0)
+    parser.add_argument("--tsv", default="",
+                        help="sortie plate additionnelle (parsing trivial côté GUI)")
     parser.add_argument("--progress", action="store_true",
                         help="émet PROGRESS n (pourcentage) sur stdout")
     args = parser.parse_args()
@@ -290,6 +292,13 @@ def main() -> int:
     }
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=1)
+    if args.tsv:
+        with open(args.tsv, "w", encoding="utf-8") as f:
+            for d in detections:
+                f.write(f"D\t{d['sample']}\t{d['start']}\t{d['duration']}\t"
+                        f"{d['gain']}\t{d['gain_db']}\t{d['confidence']}\n")
+            for u in unknowns:
+                f.write(f"U\t{u['start']}\t{u['duration']}\t{u['rms_db']}\n")
     report(100, f"resultat : {args.output}")
     print("DONE", flush=True)
     return 0

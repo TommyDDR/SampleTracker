@@ -27,6 +27,7 @@ Func Action_LoadSource($sPath)
         Return
     EndIf
     Ffmpeg_Cancel() ; annule une extraction précédente éventuelle
+    Action_AbortAnalysis()
     Waveform_Reset()
     $g_sSourcePath = $sPath
     $g_sSourceWav = ""
@@ -87,6 +88,7 @@ Func Action_LoadSamplesDir($sDir)
     For $i = 1 To $aFiles[0]
         $aNames[$i - 1] = $aFiles[$i]
     Next
+    Action_AbortAnalysis()
     $g_aSampleFiles = $aNames
     $g_sSamplesDir = $sDir
     Ui_SetStatus($aFiles[0] & " samples chargés depuis " & $sDir, 1)
@@ -103,11 +105,58 @@ Func Action_HandleDrop($sPath)
     EndIf
 EndFunc
 
-; --- Analyse (placeholder phase 1) -----------------------------------------
+; --- Analyse (phase 5) -----------------------------------------------------
 
 Func Action_Analyze()
-    If Not App_IsAnalyzeReady() Then Return
-    Ui_SetStatus("Moteur d'analyse non branché (phases 4-5).", 0)
+    If Not App_IsAnalyzeReady() Or $g_bAnalyzing Then Return
+    Engine_Start($g_sSourceWav, $g_sSamplesDir, _
+            $g_sWorkDir & "\result.json", $g_sWorkDir & "\result.tsv")
+    If @error Then
+        Switch @error
+            Case 1
+                Ui_SetStatus("Python introuvable (requis pour le moteur) : installer Python 3.10+ avec numpy", 2)
+            Case 2
+                Ui_SetStatus("engine\analyze.py introuvable", 2)
+            Case Else
+                Ui_SetStatus("Échec du lancement du moteur", 2)
+        EndSwitch
+        Return
+    EndIf
+    Engine_ClearResults()
+    $g_iResultsVersion += 1
+    $g_bAnalyzing = True
+    $g_hAnalyzeTimer = TimerInit()
+    Ui_SetStatus("Analyse en cours…", 0)
+EndFunc
+
+; Appelé chaque frame : détecte la fin de l'analyse.
+Func Action_PollEngine()
+    If Not $g_bAnalyzing Then Return
+    Local $iRes = Engine_Poll()
+    If $iRes = 0 Then Return
+    $g_bAnalyzing = False
+    If $iRes = 1 Then
+        Engine_LoadResults()
+        If @error Then
+            Ui_SetStatus("Résultats illisibles (TSV) : " & $g_sEngineTsv, 2)
+        Else
+            Ui_SetStatus(StringFormat("Analyse terminée en %.1f s : %d détection(s), %d inconnu(s)", _
+                    TimerDiff($g_hAnalyzeTimer) / 1000, $g_iDetections, $g_iUnknowns), 1)
+        EndIf
+    Else
+        Ui_SetStatus("Échec analyse : " & Engine_LastError(), 2)
+    EndIf
+    $g_iResultsVersion += 1
+EndFunc
+
+; Annule l'analyse et invalide les résultats (source/bibliothèque changée).
+Func Action_AbortAnalysis()
+    If $g_bAnalyzing Then
+        Engine_Cancel()
+        $g_bAnalyzing = False
+    EndIf
+    Engine_ClearResults()
+    $g_iResultsVersion += 1
 EndFunc
 
 ; --- Helpers ---------------------------------------------------------------
