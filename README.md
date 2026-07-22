@@ -50,6 +50,7 @@ AutoIt3.exe tests\Phase3Test.au3
 AutoIt3.exe tests\Phase5Test.au3
 AutoIt3.exe tests\Phase6Test.au3
 AutoIt3.exe tests\PrefsTest.au3
+AutoIt3.exe tests\CursorTest.au3
 python engine\test_engine.py
 ```
 
@@ -96,7 +97,11 @@ Précision mesurée (mix synthétique) : position < 10 ms, gain < 0.3 dB (WAV)
   sample joué reste en vert jusqu'au suivant, et sa piste est surlignée.
 - Bibliothèque : liste défilante (molette, barre à droite) ; « + N autres… »
   fait défiler d'une page.
-- Survol d'un bloc ou d'un libellé de piste : infobulle avec le nom complet.
+- Survol d'un bloc ou d'un libellé de piste : infobulle avec le nom complet,
+  toujours dessinée au-dessus des autres panneaux.
+- Curseur souris : main sur les zones cliquables (waveform, timeline, libellés
+  de pistes, boutons, samples), double flèche verticale sur les poignées de
+  redimensionnement, flèche ailleurs.
 - Fin d'analyse : la timeline se réduit au nombre de pistes détectées et la
   bibliothèque récupère la place gagnée.
 - Redimensionner les zones : glisser l'espace entre deux blocs (le curseur
@@ -114,7 +119,7 @@ Le rendu allant directement dans le DC de la fenêtre, une capture d'écran
 classique ne voit rien. Mode dédié :
 
 ```
-AutoIt3.exe SampleTracker.au3 --shot vue.png [--analyze] [--played nom.wav]
+AutoIt3.exe SampleTracker.au3 --shot vue.png [--analyze] [--played nom.wav] [--hover x y]
 ```
 
 Recharge la dernière session, attend que tout soit prêt (extraction, waveform,

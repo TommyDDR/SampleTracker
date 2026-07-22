@@ -84,9 +84,13 @@ Func App_ShotMode($sPath, $bAnalyze)
         Sleep(20)
     WEnd
     ; --played <nom> : simule la mise en évidence du dernier sample joué
+    ; --hover <x> <y> : simule le survol (contrôle des infobulles)
     Local $i
     For $i = 1 To $CmdLine[0] - 1
         If $CmdLine[$i] = "--played" Then $g_sLastPlayed = $CmdLine[$i + 1]
+        If $CmdLine[$i] = "--hover" And $i + 2 <= $CmdLine[0] Then
+            App_UpdateHoverAt(Number($CmdLine[$i + 1]), Number($CmdLine[$i + 2]))
+        EndIf
     Next
     Ui_Redraw() ; forcer un rendu complet, cache ignoré
     Render_Present()
@@ -184,32 +188,38 @@ EndFunc
 Func App_UpdateHover()
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
-    Local $iHit = Layout_HitButton($aInfo[0], $aInfo[1])
+    App_UpdateHoverAt($aInfo[0], $aInfo[1])
+EndFunc
+
+; Recalcule tout l'état de survol pour un point donné (séparé de la lecture
+; de la souris : réutilisable pour le contrôle visuel en mode --shot).
+Func App_UpdateHoverAt($iX, $iY)
+    Local $iHit = Layout_HitButton($iX, $iY)
     If $iHit <> $g_iHoverButton Then $g_iHoverButton = $iHit
     ; Bloc timeline survolé (tooltip)
     Local $iBlock = -1
-    If $g_iTlBlocks > 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectTlBlocks) Then
+    If $g_iTlBlocks > 0 And Layout_PointInRect($iX, $iY, $g_aRectTlBlocks) Then
         Local $fViewStart, $fViewDur
         Ui_GetTimelineView($fViewStart, $fViewDur)
-        $iBlock = Timeline_HitBlock($aInfo[0], $aInfo[1], $g_aRectTlBlocks, $fViewStart, $fViewDur)
+        $iBlock = Timeline_HitBlock($iX, $iY, $g_aRectTlBlocks, $fViewStart, $fViewDur)
     EndIf
     $g_iHoverBlock = $iBlock
-    $g_iHoverX = $aInfo[0]
-    $g_iHoverY = $aInfo[1]
+    $g_iHoverX = $iX
+    $g_iHoverY = $iY
     ; Sample survolé dans la bibliothèque
-    $g_iHoverSample = Layout_HitSample($aInfo[0], $aInfo[1], UBound($g_aSampleFiles))
-    $g_bSamplesMore = App_HitSamplesMore($aInfo[0], $aInfo[1])
+    $g_iHoverSample = Layout_HitSample($iX, $iY, UBound($g_aSampleFiles))
+    $g_bSamplesMore = App_HitSamplesMore($iX, $iY)
     ; Libellé de piste survolé (infobulle avec le nom complet)
     $g_iHoverLane = -1
     If $g_iTlLanes > 0 And $g_iHoverBlock = -1 Then
         Local $iRowH, $iVisible
         Timeline_LayoutRows($g_aRectTlBlocks, $iRowH, $iVisible)
-        $g_iHoverLane = Layout_HitLaneLabel($aInfo[0], $aInfo[1], $iVisible, $iRowH)
+        $g_iHoverLane = Layout_HitLaneLabel($iX, $iY, $iVisible, $iRowH)
     EndIf
-    ; Poignée de redimensionnement : curseur double flèche verticale
+    ; Poignée de redimensionnement (prioritaire pour le choix du curseur)
     $g_iHoverSplitter = ($g_iDragSplitter <> $SPLIT_NONE) _
-            ? $g_iDragSplitter : Layout_HitSplitter($aInfo[0], $aInfo[1])
-    App_UpdateCursor($g_iHoverSplitter <> $SPLIT_NONE)
+            ? $g_iDragSplitter : Layout_HitSplitter($iX, $iY)
+    App_UpdateCursorForPoint($iX, $iY)
 EndFunc
 
 ; Ligne « + N autres… » de la bibliothèque (au-dessus de la grille).
@@ -219,12 +229,28 @@ Func App_HitSamplesMore($iX, $iY)
             And $iY >= $g_aRectSamplesList[1] - 20 And $iY < $g_aRectSamplesList[1]
 EndFunc
 
-; Bascule le curseur souris entre flèche et double flèche verticale.
-; Ne touche au curseur que sur changement d'état (pas d'appel par frame).
-Func App_UpdateCursor($bSizeNS)
-    If $bSizeNS = $g_bCursorSizeNS Then Return
-    $g_bCursorSizeNS = $bSizeNS
-    GUISetCursor($bSizeNS ? 11 : 2, 1, $g_hGui) ; 10 = SizeNS, 16 = curseur par défaut
+; Applique un curseur souris. Ne touche au curseur que sur changement
+; d'état (pas d'appel Windows par frame).
+Func App_SetCursor($iCursor)
+    If $iCursor = $g_iCursorCurrent Then Return
+    $g_iCursorCurrent = $iCursor
+    GUISetCursor($iCursor, 1, $g_hGui)
+EndFunc
+
+; Choisit le curseur selon la zone survolée : poignée de redimensionnement,
+; élément cliquable (waveform, timeline, libellés de pistes, boutons, samples),
+; sinon flèche.
+Func App_UpdateCursorForPoint($iX, $iY)
+    If $g_iHoverSplitter <> $SPLIT_NONE Then
+        App_SetCursor($CURSOR_SIZENS)
+        Return
+    EndIf
+    Local $bClickable = ($g_iHoverButton <> -1) _
+            Or ($g_iHoverSample >= 0) Or $g_bSamplesMore _
+            Or ($g_iHoverLane >= 0) _
+            Or ($g_bWaveReady And Layout_PointInRect($iX, $iY, $g_aRectWave)) _
+            Or ($g_iTlBlocks > 0 And Layout_PointInRect($iX, $iY, $g_aRectTlBlocks))
+    App_SetCursor($bClickable ? $CURSOR_HAND : $CURSOR_ARROW)
 EndFunc
 
 ; Accumule le delta molette (handler de message : rester minimal).

@@ -191,6 +191,7 @@ Func Ui_Redraw()
     Ui_DrawSamplesZone()
     Ui_DrawSplitters()
     Ui_DrawStatusBar()
+    Ui_DrawTooltips() ; en dernier : toujours au-dessus du reste
 EndFunc
 
 ; Poignées de redimensionnement : trait discret quand survolé ou tiré.
@@ -596,13 +597,16 @@ Func Ui_DrawTimelineTracks()
     Ui_DrawPlayhead($aB, $fViewStart, $fViewDur)
     Ui_ResetClip()
 
-    ; Infobulles : hors clip, dessinées en dernier par-dessus tout
+EndFunc
+
+; Infobulles : dessinées tout à la fin de la frame (Ui_Redraw), donc
+; par-dessus tous les panneaux, y compris ceux tracés après la timeline.
+Func Ui_DrawTooltips()
     If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks Then
         Ui_DrawBlockTooltip()
     ElseIf $g_iHoverLane >= 0 And $g_iHoverLane < $g_iTlLanes Then
         ; Libellé de piste tronqué : nom complet en infobulle
-        Ui_DrawNameTooltip($g_aTlLaneName[$g_iHoverLane], _
-                $g_aTlLaneKind[$g_iHoverLane] = 1)
+        Ui_DrawNameTooltip($g_aTlLaneName[$g_iHoverLane], $g_aTlLaneKind[$g_iHoverLane] = 1)
     EndIf
 EndFunc
 

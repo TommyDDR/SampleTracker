@@ -46,7 +46,13 @@ Global $g_iHoverY = 0
 ; Redimensionnement des zones par poignée
 Global $g_iHoverSplitter = -1   ; $SPLIT_NONE
 Global $g_iDragSplitter = -1
-Global $g_bCursorSizeNS = False ; curseur souris actuellement en double flèche
+Global $g_iCursorCurrent = -1   ; curseur souris appliqué (évite les appels inutiles)
+
+; Identifiants GUISetCursor, relevés empiriquement (tests\CursorTest.au3) :
+; la table ne correspond pas aux constantes système IDC_*, d'où ces noms.
+Global Const $CURSOR_HAND = 0    ; main : zone cliquable
+Global Const $CURSOR_ARROW = 2   ; flèche standard
+Global Const $CURSOR_SIZENS = 11 ; double flèche verticale : poignée
 
 ; Survol bibliothèque (prévisualisation au clic)
 Global $g_iHoverSample = -1
