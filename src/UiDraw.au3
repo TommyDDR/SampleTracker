@@ -1,0 +1,345 @@
+﻿#include-once
+
+; ---------------------------------------------------------------------------
+; Dessin de l'interface (thème sombre type DAW).
+; Cache à clé plein écran (doc rendu §7.3) : le backbuffer n'est redessiné
+; que si la clé scalaire change ; Render_Present() est appelé chaque frame.
+; ---------------------------------------------------------------------------
+
+; Couleurs (ARGB)
+Global Const $UI_COLOR_BG = 0xFF17171C
+Global Const $UI_COLOR_TOPBAR = 0xFF20202A
+Global Const $UI_COLOR_PANEL = 0xFF232329
+Global Const $UI_COLOR_BORDER = 0xFF34343E
+Global Const $UI_COLOR_TEXT = 0xFFE2E2E8
+Global Const $UI_COLOR_MUTED = 0xFF8A8A98
+Global Const $UI_COLOR_TEXT_DISABLED = 0xFF55555F
+Global Const $UI_COLOR_ACCENT = 0xFF4FA8E8
+Global Const $UI_COLOR_OK = 0xFF58C878
+Global Const $UI_COLOR_ERROR = 0xFFE06060
+Global Const $UI_COLOR_BUTTON = 0xFF32323E
+Global Const $UI_COLOR_BUTTON_HOVER = 0xFF3E3E4E
+Global Const $UI_COLOR_BUTTON_DISABLED = 0xFF26262E
+Global Const $UI_COLOR_ANALYZE = 0xFF2F6E49
+Global Const $UI_COLOR_ANALYZE_HOVER = 0xFF388055
+Global Const $UI_COLOR_WAVE_BG = 0xFF1B1B21
+Global Const $UI_COLOR_WAVE_LINE = 0xFF3A3A46
+
+Global Const $UI_STATUS_TIMEOUT_MS = 8000
+Global Const $UI_GDIP_NOWRAP = 0x1000
+
+; Ressources GDI+ partagées (créées au démarrage, jamais par frame — doc §8)
+Global $g_hFamilyUi = 0
+Global $g_hFontTitle = 0
+Global $g_hFontNormal = 0
+Global $g_hFontSmall = 0
+Global $g_hFontZone = 0
+Global $g_hBrushText = 0
+Global $g_hBrushMuted = 0
+Global $g_hBrushTextDisabled = 0
+Global $g_hBrushAccent = 0
+Global $g_hBrushOk = 0
+Global $g_hBrushError = 0
+Global $g_hBrushPanel = 0
+Global $g_hBrushTopBar = 0
+Global $g_hBrushButton = 0
+Global $g_hBrushButtonHover = 0
+Global $g_hBrushButtonDisabled = 0
+Global $g_hBrushAnalyze = 0
+Global $g_hBrushAnalyzeHover = 0
+Global $g_hBrushWaveBg = 0
+Global $g_hPenBorder = 0
+Global $g_hPenWaveLine = 0
+Global $g_hFmtLeft = 0
+Global $g_hFmtCenter = 0
+Global $g_hFmtRight = 0
+Global $g_hFmtCenterWrap = 0
+
+Func Ui_Startup()
+    $g_hFamilyUi = _GDIPlus_FontFamilyCreate("Segoe UI")
+    If @error Or $g_hFamilyUi = 0 Then $g_hFamilyUi = _GDIPlus_FontFamilyCreate("Arial")
+
+    $g_hFontTitle = _GDIPlus_FontCreate($g_hFamilyUi, 17, 1)
+    $g_hFontNormal = _GDIPlus_FontCreate($g_hFamilyUi, 12, 0)
+    $g_hFontSmall = _GDIPlus_FontCreate($g_hFamilyUi, 10, 0)
+    $g_hFontZone = _GDIPlus_FontCreate($g_hFamilyUi, 10, 1)
+
+    $g_hBrushText = _GDIPlus_BrushCreateSolid($UI_COLOR_TEXT)
+    $g_hBrushMuted = _GDIPlus_BrushCreateSolid($UI_COLOR_MUTED)
+    $g_hBrushTextDisabled = _GDIPlus_BrushCreateSolid($UI_COLOR_TEXT_DISABLED)
+    $g_hBrushAccent = _GDIPlus_BrushCreateSolid($UI_COLOR_ACCENT)
+    $g_hBrushOk = _GDIPlus_BrushCreateSolid($UI_COLOR_OK)
+    $g_hBrushError = _GDIPlus_BrushCreateSolid($UI_COLOR_ERROR)
+    $g_hBrushPanel = _GDIPlus_BrushCreateSolid($UI_COLOR_PANEL)
+    $g_hBrushTopBar = _GDIPlus_BrushCreateSolid($UI_COLOR_TOPBAR)
+    $g_hBrushButton = _GDIPlus_BrushCreateSolid($UI_COLOR_BUTTON)
+    $g_hBrushButtonHover = _GDIPlus_BrushCreateSolid($UI_COLOR_BUTTON_HOVER)
+    $g_hBrushButtonDisabled = _GDIPlus_BrushCreateSolid($UI_COLOR_BUTTON_DISABLED)
+    $g_hBrushAnalyze = _GDIPlus_BrushCreateSolid($UI_COLOR_ANALYZE)
+    $g_hBrushAnalyzeHover = _GDIPlus_BrushCreateSolid($UI_COLOR_ANALYZE_HOVER)
+    $g_hBrushWaveBg = _GDIPlus_BrushCreateSolid($UI_COLOR_WAVE_BG)
+
+    $g_hPenBorder = _GDIPlus_PenCreate($UI_COLOR_BORDER, 1)
+    $g_hPenWaveLine = _GDIPlus_PenCreate($UI_COLOR_WAVE_LINE, 1)
+
+    $g_hFmtLeft = _GDIPlus_StringFormatCreate($UI_GDIP_NOWRAP)
+    _GDIPlus_StringFormatSetAlign($g_hFmtLeft, 0)
+    _GDIPlus_StringFormatSetLineAlign($g_hFmtLeft, 1)
+
+    $g_hFmtCenter = _GDIPlus_StringFormatCreate($UI_GDIP_NOWRAP)
+    _GDIPlus_StringFormatSetAlign($g_hFmtCenter, 1)
+    _GDIPlus_StringFormatSetLineAlign($g_hFmtCenter, 1)
+
+    $g_hFmtRight = _GDIPlus_StringFormatCreate($UI_GDIP_NOWRAP)
+    _GDIPlus_StringFormatSetAlign($g_hFmtRight, 2)
+    _GDIPlus_StringFormatSetLineAlign($g_hFmtRight, 1)
+
+    $g_hFmtCenterWrap = _GDIPlus_StringFormatCreate()
+    _GDIPlus_StringFormatSetAlign($g_hFmtCenterWrap, 1)
+    _GDIPlus_StringFormatSetLineAlign($g_hFmtCenterWrap, 1)
+
+    Render_RegisterDisposer("Ui_Dispose")
+EndFunc
+
+; --- Cache à clé -----------------------------------------------------------
+
+Func Ui_SetStatus($sText, $iKind = 0)
+    $g_sStatusText = $sText
+    $g_iStatusKind = $iKind
+    $g_hStatusTimer = TimerInit()
+EndFunc
+
+Func Ui_IsStatusVisible()
+    If $g_sStatusText = "" Then Return False
+    Return TimerDiff($g_hStatusTimer) < $UI_STATUS_TIMEOUT_MS
+EndFunc
+
+; Clé bon marché : concat de scalaires déjà en mémoire (doc §7.3).
+Func Ui_BuildCacheKey()
+    Local $sStatus = ""
+    If Ui_IsStatusVisible() Then $sStatus = $g_iStatusKind & ":" & $g_sStatusText
+    Return $g_iRenderW & "|" & $g_iRenderH & "|" & $g_iHoverButton & "|" _
+            & $g_sSourcePath & "|" & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
+            & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus
+EndFunc
+
+Func Ui_DrawFrame()
+    Local $sKey = Ui_BuildCacheKey()
+    If $sKey = $g_sUiCacheKey Then Return
+    $g_sUiCacheKey = $sKey
+    Ui_Redraw()
+EndFunc
+
+; --- Dessin ----------------------------------------------------------------
+
+Func Ui_Redraw()
+    _GDIPlus_GraphicsClear($g_hGfx, $UI_COLOR_BG)
+    Ui_DrawTopBar()
+    Ui_DrawSourceZone()
+    Ui_DrawTimelineZone()
+    Ui_DrawSamplesZone()
+    Ui_DrawStatusBar()
+EndFunc
+
+Func Ui_DrawTopBar()
+    Local $aR = $g_aRectTopBar
+    _GDIPlus_GraphicsFillRect($g_hGfx, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushTopBar)
+    _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0], $aR[3] - 1, $aR[0] + $aR[2], $aR[3] - 1, $g_hPenBorder)
+    Ui_DrawText("SampleTracker", $g_hFontTitle, 16, 0, 300, $aR[3], $g_hBrushText, $g_hFmtLeft)
+    Local $i
+    For $i = 0 To $BTN_COUNT - 1
+        Ui_DrawButton($i)
+    Next
+EndFunc
+
+Func Ui_DrawButton($iIndex)
+    Local $iX = $g_aRectButtons[$iIndex][0]
+    Local $iY = $g_aRectButtons[$iIndex][1]
+    Local $iW = $g_aRectButtons[$iIndex][2]
+    Local $iH = $g_aRectButtons[$iIndex][3]
+    Local $bEnabled = ($iIndex <> $BTN_ANALYZE) Or App_IsAnalyzeReady()
+    Local $hFill = $g_hBrushButton
+    Local $hText = $g_hBrushText
+    If Not $bEnabled Then
+        $hFill = $g_hBrushButtonDisabled
+        $hText = $g_hBrushTextDisabled
+    ElseIf $iIndex = $BTN_ANALYZE Then
+        $hFill = ($g_iHoverButton = $iIndex) ? $g_hBrushAnalyzeHover : $g_hBrushAnalyze
+    ElseIf $g_iHoverButton = $iIndex Then
+        $hFill = $g_hBrushButtonHover
+    EndIf
+    _GDIPlus_GraphicsFillRect($g_hGfx, $iX, $iY, $iW, $iH, $hFill)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $iX, $iY, $iW - 1, $iH - 1, $g_hPenBorder)
+    Ui_DrawText($g_aButtonLabels[$iIndex], $g_hFontSmall, $iX, $iY, $iW, $iH, $hText, $g_hFmtCenter)
+EndFunc
+
+Func Ui_DrawSourceZone()
+    Local $aR = $g_aRectSource
+    Ui_DrawPanel($aR)
+    Ui_DrawText("SOURCE", $g_hFontZone, $aR[0] + 14, $aR[1] + 4, 200, 20, $g_hBrushMuted, $g_hFmtLeft)
+    If $g_sSourcePath = "" Then
+        Ui_DrawText("Glisser un fichier MP3 / WAV / MP4 ici, ou utiliser « Ouvrir source »", _
+                $g_hFontNormal, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushMuted, $g_hFmtCenterWrap)
+        Return
+    EndIf
+    Ui_DrawText(Action_FileName($g_sSourcePath), $g_hFontNormal, _
+            $aR[0] + 14, $aR[1] + 24, $aR[2] - 28, 22, $g_hBrushAccent, $g_hFmtLeft)
+    Ui_DrawText(Ui_EllipsizePath($g_sSourcePath, 110), $g_hFontSmall, _
+            $aR[0] + 14, $aR[1] + 46, $aR[2] - 28, 16, $g_hBrushMuted, $g_hFmtLeft)
+    ; Emplacement waveform (phase 3)
+    Local $iWaveY = $aR[1] + 68
+    Local $iWaveH = $aR[1] + $aR[3] - 12 - $iWaveY
+    If $iWaveH > 10 Then
+        _GDIPlus_GraphicsFillRect($g_hGfx, $aR[0] + 14, $iWaveY, $aR[2] - 28, $iWaveH, $g_hBrushWaveBg)
+        _GDIPlus_GraphicsDrawRect($g_hGfx, $aR[0] + 14, $iWaveY, $aR[2] - 28 - 1, $iWaveH - 1, $g_hPenBorder)
+        _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0] + 14, $iWaveY + $iWaveH / 2, _
+                $aR[0] + 14 + $aR[2] - 28, $iWaveY + $iWaveH / 2, $g_hPenWaveLine)
+        Ui_DrawText("Waveform — phase 3", $g_hFontSmall, $aR[0] + 14, $iWaveY, _
+                $aR[2] - 28, $iWaveH, $g_hBrushMuted, $g_hFmtCenter)
+    EndIf
+EndFunc
+
+Func Ui_DrawTimelineZone()
+    Local $aR = $g_aRectTimeline
+    Ui_DrawPanel($aR)
+    Ui_DrawText("TIMELINE", $g_hFontZone, $aR[0] + 14, $aR[1] + 4, 200, 20, $g_hBrushMuted, $g_hFmtLeft)
+    Ui_DrawText("Les pistes et blocs de détection s'afficheront ici (phases 3 à 6)", _
+            $g_hFontNormal, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushMuted, $g_hFmtCenterWrap)
+EndFunc
+
+Func Ui_DrawSamplesZone()
+    Local $aR = $g_aRectSamples
+    Ui_DrawPanel($aR)
+    Ui_DrawText("BIBLIOTHÈQUE DE SAMPLES", $g_hFontZone, $aR[0] + 14, $aR[1] + 4, 300, 20, $g_hBrushMuted, $g_hFmtLeft)
+    Local $iCount = UBound($g_aSampleFiles)
+    If $iCount = 0 Then
+        Ui_DrawText("Glisser un dossier de samples ici, ou utiliser « Dossier samples »", _
+                $g_hFontNormal, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushMuted, $g_hFmtCenterWrap)
+        Return
+    EndIf
+    Ui_DrawText($iCount & " samples", $g_hFontSmall, $aR[0], $aR[1] + 4, $aR[2] - 14, 20, $g_hBrushOk, $g_hFmtRight)
+    Ui_DrawText(Ui_EllipsizePath($g_sSamplesDir, 110), $g_hFontSmall, _
+            $aR[0] + 14, $aR[1] + 26, $aR[2] - 28, 16, $g_hBrushMuted, $g_hFmtLeft)
+
+    ; Grille de noms (colonnes puis lignes)
+    Local $iInnerX = $aR[0] + 14
+    Local $iInnerY = $aR[1] + 48
+    Local $iInnerW = $aR[2] - 28
+    Local $iInnerH = $aR[1] + $aR[3] - 10 - $iInnerY
+    Local $iColW = 240
+    Local $iRowH = 20
+    Local $iCols = Int($iInnerW / $iColW)
+    If $iCols < 1 Then $iCols = 1
+    Local $iRows = Int($iInnerH / $iRowH)
+    If $iRows < 1 Then $iRows = 1
+    Local $iMax = $iCols * $iRows
+    Local $iShown = $iCount
+    If $iCount > $iMax Then $iShown = $iMax - 1 ; réserver une case pour "+ N autres"
+    Local $i, $iCol, $iRow
+    For $i = 0 To $iShown - 1
+        $iCol = Int($i / $iRows)
+        $iRow = Mod($i, $iRows)
+        Ui_DrawText("• " & Ui_EllipsizeEnd($g_aSampleFiles[$i], 32), $g_hFontSmall, _
+                $iInnerX + $iCol * $iColW, $iInnerY + $iRow * $iRowH, $iColW - 10, $iRowH, _
+                $g_hBrushText, $g_hFmtLeft)
+    Next
+    If $iCount > $iShown Then
+        $iCol = Int($iShown / $iRows)
+        $iRow = Mod($iShown, $iRows)
+        Ui_DrawText("+ " & ($iCount - $iShown) & " autres…", $g_hFontSmall, _
+                $iInnerX + $iCol * $iColW, $iInnerY + $iRow * $iRowH, $iColW - 10, $iRowH, _
+                $g_hBrushMuted, $g_hFmtLeft)
+    EndIf
+EndFunc
+
+Func Ui_DrawStatusBar()
+    Local $aR = $g_aRectStatus
+    Ui_DrawText("F3 : profiler", $g_hFontSmall, $aR[0], $aR[1], $aR[2] - 12, $aR[3], $g_hBrushMuted, $g_hFmtRight)
+    If Not Ui_IsStatusVisible() Then Return
+    Local $hBrush = $g_hBrushText
+    If $g_iStatusKind = 1 Then $hBrush = $g_hBrushOk
+    If $g_iStatusKind = 2 Then $hBrush = $g_hBrushError
+    Ui_DrawText("● " & $g_sStatusText, $g_hFontSmall, $aR[0] + 12, $aR[1], $aR[2] - 160, $aR[3], $hBrush, $g_hFmtLeft)
+EndFunc
+
+; --- Helpers ---------------------------------------------------------------
+
+Func Ui_DrawPanel($aRect)
+    _GDIPlus_GraphicsFillRect($g_hGfx, $aRect[0], $aRect[1], $aRect[2], $aRect[3], $g_hBrushPanel)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $aRect[0], $aRect[1], $aRect[2] - 1, $aRect[3] - 1, $g_hPenBorder)
+EndFunc
+
+Func Ui_DrawText($sText, $hFont, $iX, $iY, $iW, $iH, $hBrush, $hFormat)
+    Local $tRect = _GDIPlus_RectFCreate($iX, $iY, $iW, $iH)
+    _GDIPlus_GraphicsDrawStringEx($g_hGfx, $sText, $hFont, $tRect, $hFormat, $hBrush)
+EndFunc
+
+; Coupe la fin ("nom-tres-long…")
+Func Ui_EllipsizeEnd($sText, $iMax)
+    If StringLen($sText) <= $iMax Then Return $sText
+    Return StringLeft($sText, $iMax - 1) & "…"
+EndFunc
+
+; Garde la fin ("…\dossier\fichier.mp3")
+Func Ui_EllipsizePath($sText, $iMax)
+    If StringLen($sText) <= $iMax Then Return $sText
+    Return "…" & StringRight($sText, $iMax - 1)
+EndFunc
+
+; --- Disposer (registre §11, idempotent) -----------------------------------
+
+Func Ui_Dispose()
+    If $g_hFontTitle <> 0 Then _GDIPlus_FontDispose($g_hFontTitle)
+    If $g_hFontNormal <> 0 Then _GDIPlus_FontDispose($g_hFontNormal)
+    If $g_hFontSmall <> 0 Then _GDIPlus_FontDispose($g_hFontSmall)
+    If $g_hFontZone <> 0 Then _GDIPlus_FontDispose($g_hFontZone)
+    If $g_hFamilyUi <> 0 Then _GDIPlus_FontFamilyDispose($g_hFamilyUi)
+    $g_hFontTitle = 0
+    $g_hFontNormal = 0
+    $g_hFontSmall = 0
+    $g_hFontZone = 0
+    $g_hFamilyUi = 0
+
+    If $g_hBrushText <> 0 Then _GDIPlus_BrushDispose($g_hBrushText)
+    If $g_hBrushMuted <> 0 Then _GDIPlus_BrushDispose($g_hBrushMuted)
+    If $g_hBrushTextDisabled <> 0 Then _GDIPlus_BrushDispose($g_hBrushTextDisabled)
+    If $g_hBrushAccent <> 0 Then _GDIPlus_BrushDispose($g_hBrushAccent)
+    If $g_hBrushOk <> 0 Then _GDIPlus_BrushDispose($g_hBrushOk)
+    If $g_hBrushError <> 0 Then _GDIPlus_BrushDispose($g_hBrushError)
+    If $g_hBrushPanel <> 0 Then _GDIPlus_BrushDispose($g_hBrushPanel)
+    If $g_hBrushTopBar <> 0 Then _GDIPlus_BrushDispose($g_hBrushTopBar)
+    If $g_hBrushButton <> 0 Then _GDIPlus_BrushDispose($g_hBrushButton)
+    If $g_hBrushButtonHover <> 0 Then _GDIPlus_BrushDispose($g_hBrushButtonHover)
+    If $g_hBrushButtonDisabled <> 0 Then _GDIPlus_BrushDispose($g_hBrushButtonDisabled)
+    If $g_hBrushAnalyze <> 0 Then _GDIPlus_BrushDispose($g_hBrushAnalyze)
+    If $g_hBrushAnalyzeHover <> 0 Then _GDIPlus_BrushDispose($g_hBrushAnalyzeHover)
+    If $g_hBrushWaveBg <> 0 Then _GDIPlus_BrushDispose($g_hBrushWaveBg)
+    $g_hBrushText = 0
+    $g_hBrushMuted = 0
+    $g_hBrushTextDisabled = 0
+    $g_hBrushAccent = 0
+    $g_hBrushOk = 0
+    $g_hBrushError = 0
+    $g_hBrushPanel = 0
+    $g_hBrushTopBar = 0
+    $g_hBrushButton = 0
+    $g_hBrushButtonHover = 0
+    $g_hBrushButtonDisabled = 0
+    $g_hBrushAnalyze = 0
+    $g_hBrushAnalyzeHover = 0
+    $g_hBrushWaveBg = 0
+
+    If $g_hPenBorder <> 0 Then _GDIPlus_PenDispose($g_hPenBorder)
+    If $g_hPenWaveLine <> 0 Then _GDIPlus_PenDispose($g_hPenWaveLine)
+    $g_hPenBorder = 0
+    $g_hPenWaveLine = 0
+
+    If $g_hFmtLeft <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtLeft)
+    If $g_hFmtCenter <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtCenter)
+    If $g_hFmtRight <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtRight)
+    If $g_hFmtCenterWrap <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtCenterWrap)
+    $g_hFmtLeft = 0
+    $g_hFmtCenter = 0
+    $g_hFmtRight = 0
+    $g_hFmtCenterWrap = 0
+EndFunc
