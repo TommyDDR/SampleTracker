@@ -35,6 +35,12 @@ Global $g_fDragStartView = 0
 Global $g_hLastClickTimer = 0   ; détection double-clic
 Global $g_iLastClickX = -1000
 Global $g_iLastClickY = -1000
+Global $g_iDragRefW = 1         ; largeur du rect où le drag a commencé (sec/px)
+
+; Survol timeline (phase 6)
+Global $g_iHoverBlock = -1
+Global $g_iHoverX = 0
+Global $g_iHoverY = 0
 
 ; Analyse (phase 5)
 Global $g_bAnalyzing = False

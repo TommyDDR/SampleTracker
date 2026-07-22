@@ -24,6 +24,8 @@ Global $g_aRectTopBar[4]
 Global $g_aRectSource[4]
 Global $g_aRectWave[4]   ; bande waveform (règle + pics) dans la zone source
 Global $g_aRectTimeline[4]
+Global $g_aRectTlBlocks[4]  ; zone des blocs (timeline moins colonne labels)
+Global Const $TL_LABEL_W = 150
 Global $g_aRectSamples[4]
 Global $g_aRectStatus[4]
 
@@ -61,6 +63,8 @@ Func Layout_Recompute($iW, $iH)
     Local $iTimelineH = $iSamplesY - $m - $iTimelineY
     If $iTimelineH < 40 Then $iTimelineH = 40
     _Layout_SetRect($g_aRectTimeline, $m, $iTimelineY, $iW - 2 * $m, $iTimelineH)
+    _Layout_SetRect($g_aRectTlBlocks, $m + $TL_LABEL_W, $iTimelineY + 24, _
+            $iW - 2 * $m - $TL_LABEL_W - 12, $iTimelineH - 24 - 10)
 EndFunc
 
 Func _Layout_SetRect(ByRef $aRect, $iX, $iY, $iW, $iH)

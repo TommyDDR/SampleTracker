@@ -25,6 +25,7 @@
 #include "src\Wav.au3"
 #include "src\Waveform.au3"
 #include "src\Engine.au3"
+#include "src\Timeline.au3"
 #include "src\UiDraw.au3"
 #include "src\Actions.au3"
 #include "src\Drop.au3"
@@ -132,6 +133,16 @@ Func App_UpdateHover()
     If @error Then Return
     Local $iHit = Layout_HitButton($aInfo[0], $aInfo[1])
     If $iHit <> $g_iHoverButton Then $g_iHoverButton = $iHit
+    ; Bloc timeline survolé (tooltip)
+    Local $iBlock = -1
+    If $g_iTlBlocks > 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectTlBlocks) Then
+        Local $fViewStart, $fViewDur
+        Ui_GetTimelineView($fViewStart, $fViewDur)
+        $iBlock = Timeline_HitBlock($aInfo[0], $aInfo[1], $g_aRectTlBlocks, $fViewStart, $fViewDur)
+    EndIf
+    $g_iHoverBlock = $iBlock
+    $g_iHoverX = $aInfo[0]
+    $g_iHoverY = $aInfo[1]
 EndFunc
 
 ; Accumule le delta molette (handler de message : rester minimal).
@@ -159,12 +170,22 @@ Func App_ProcessWheel()
     If Not $g_bWaveReady Then Return
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
-    If Not Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then Return
+    ; Zoom X actif sur la waveform ET sur la zone de blocs timeline (vue partagée)
+    Local $aRect = 0
+    If Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
+        $aRect = $g_aRectWave
+    ElseIf $g_iTlBlocks > 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectTlBlocks) Then
+        $aRect = $g_aRectTlBlocks
+    Else
+        Return
+    EndIf
     If $iDelta <> 0 Then
-        Local $fAnchor = $g_fViewStart + ($aInfo[0] - $g_aRectWave[0]) * $g_fViewDur / $g_aRectWave[2]
+        Local $fAnchor = $g_fViewStart + ($aInfo[0] - $aRect[0]) * $g_fViewDur / $aRect[2]
         Waveform_Zoom(0.8 ^ ($iDelta / 120), $fAnchor)
     EndIf
-    If $iDeltaCtrl <> 0 Then Waveform_ZoomY(1.25 ^ ($iDeltaCtrl / 120))
+    ; Zoom amplitude : uniquement pertinent sur la waveform
+    If $iDeltaCtrl <> 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then _
+            Waveform_ZoomY(1.25 ^ ($iDeltaCtrl / 120))
 EndFunc
 
 ; Pan par glisser (poursuivi tant que le bouton reste enfoncé).
@@ -176,15 +197,21 @@ Func App_UpdateDrag()
         $g_bWaveDragging = False
         Return
     EndIf
-    Local $fNewStart = $g_fDragStartView - ($aInfo[0] - $g_iDragStartX) * $g_fViewDur / $g_aRectWave[2]
+    Local $fNewStart = $g_fDragStartView - ($aInfo[0] - $g_iDragStartX) * $g_fViewDur / $g_iDragRefW
     Waveform_SetView($fNewStart, $g_fViewDur)
 EndFunc
 
 Func App_OnPrimaryDown()
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
-    ; Waveform : double-clic = vue complète, sinon début de pan
+    ; Waveform / blocs timeline : double-clic = vue complète, sinon début de pan
+    Local $aRect = 0
     If $g_bWaveReady And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
+        $aRect = $g_aRectWave
+    ElseIf $g_bWaveReady And $g_iTlBlocks > 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectTlBlocks) Then
+        $aRect = $g_aRectTlBlocks
+    EndIf
+    If IsArray($aRect) Then
         If $g_hLastClickTimer <> 0 And TimerDiff($g_hLastClickTimer) < 400 _
                 And Abs($aInfo[0] - $g_iLastClickX) < 5 And Abs($aInfo[1] - $g_iLastClickY) < 5 Then
             Waveform_ResetView()
@@ -197,6 +224,7 @@ Func App_OnPrimaryDown()
         $g_bWaveDragging = True
         $g_iDragStartX = $aInfo[0]
         $g_fDragStartView = $g_fViewStart
+        $g_iDragRefW = $aRect[2]
         Return
     EndIf
     Switch Layout_HitButton($aInfo[0], $aInfo[1])

@@ -48,6 +48,7 @@ AutoIt3.exe SampleTracker.au3
 AutoIt3.exe tests\Phase2Test.au3
 AutoIt3.exe tests\Phase3Test.au3
 AutoIt3.exe tests\Phase5Test.au3
+AutoIt3.exe tests\Phase6Test.au3
 python engine\test_engine.py
 ```
 
@@ -78,8 +79,11 @@ Précision mesurée (mix synthétique) : position < 10 ms, gain < 0.3 dB (WAV)
 - Glisser-déposer un dossier → chargé comme bibliothèque de samples (scan `*.mp3`/`*.wav`).
 - Boutons : « Ouvrir source », « Dossier samples ».
 - « Analyser la composition » : lance le moteur en arrière-plan, barre de
-  progression dans la zone timeline, puis liste des détections (sample, début,
-  durée, gain, confiance) et des blocs INCONNU.
+  progression, puis timeline MAO : une piste par sample (sous-piste si deux
+  occurrences se chevauchent), blocs colorés (couleur stable par nom), blocs
+  INCONNU hachurés en rouge, tooltip au survol (début, durée, gain, confiance).
+  Zoom/pan synchronisés avec la waveform (molette + glisser + double-clic
+  aussi actifs sur la zone de blocs).
 - Waveform (phase 3) : calculée en arrière-plan après extraction ; molette = zoom
   autour du curseur, glisser = déplacement, double-clic = vue complète.
 - `F3` : profiler (temps par section dans le titre de la fenêtre).

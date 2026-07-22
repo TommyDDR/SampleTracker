@@ -57,6 +57,14 @@ Global $g_hFmtCenter = 0
 Global $g_hFmtRight = 0
 Global $g_hFmtCenterWrap = 0
 
+; Timeline (phase 6)
+Global $g_aBrushPalette[12]
+Global $g_hBrushUnknownFill = 0
+Global $g_hBrushTooltipBg = 0
+Global $g_hPenBlockHover = 0
+Global $g_hPenUnknown = 0
+Global $g_hPenAccent = 0
+
 Func Ui_Startup()
     $g_hFamilyUi = _GDIPlus_FontFamilyCreate("Segoe UI")
     If @error Or $g_hFamilyUi = 0 Then $g_hFamilyUi = _GDIPlus_FontFamilyCreate("Arial")
@@ -85,6 +93,20 @@ Func Ui_Startup()
     $g_hPenWaveLine = _GDIPlus_PenCreate($UI_COLOR_WAVE_LINE, 1)
     $g_hPenWave = _GDIPlus_PenCreate($UI_COLOR_ACCENT, 1)
     $g_hPenRuler = _GDIPlus_PenCreate($UI_COLOR_MUTED, 1)
+
+    ; Palette de blocs (couleur stable par nom de sample)
+    Local $aColors[12] = [0xFF4A78B0, 0xFF4AA07A, 0xFFAA7A3E, 0xFF9A5FA8, _
+            0xFF4AA0A8, 0xFFB0684A, 0xFF6E8F3C, 0xFF5F74B8, _
+            0xFFB08F3E, 0xFF3E8FB0, 0xFF8F5F8F, 0xFF5FA85F]
+    Local $iC
+    For $iC = 0 To 11
+        $g_aBrushPalette[$iC] = _GDIPlus_BrushCreateSolid($aColors[$iC])
+    Next
+    $g_hBrushUnknownFill = _GDIPlus_BrushCreateSolid(0xFF4A2828)
+    $g_hBrushTooltipBg = _GDIPlus_BrushCreateSolid(0xF5242430)
+    $g_hPenBlockHover = _GDIPlus_PenCreate(0xFFE8E8F0, 2)
+    $g_hPenUnknown = _GDIPlus_PenCreate($UI_COLOR_ERROR, 1)
+    $g_hPenAccent = _GDIPlus_PenCreate($UI_COLOR_ACCENT, 1)
 
     $g_hFmtLeft = _GDIPlus_StringFormatCreate($UI_GDIP_NOWRAP)
     _GDIPlus_StringFormatSetAlign($g_hFmtLeft, 0)
@@ -132,7 +154,8 @@ Func Ui_BuildCacheKey()
             & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
             & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus & "|" _
             & $g_bAnalyzing & "|" & $g_iEngineProgress & "|" & $g_iResultsVersion & "|" _
-            & $g_sEngineLastLine
+            & $g_sEngineLastLine & "|" & $g_iHoverBlock & "|" _
+            & ($g_iHoverBlock >= 0 ? $g_iHoverX & ":" & $g_iHoverY : "")
 EndFunc
 
 Func Ui_DrawFrame()
@@ -376,63 +399,127 @@ Func Ui_DrawTimelineZone()
         Return
     EndIf
 
-    If $g_iDetections + $g_iUnknowns > 0 Then
-        Ui_DrawResultsList($aR)
+    If $g_iTlBlocks > 0 Then
+        Ui_DrawTimelineTracks()
         Return
     EndIf
 
-    Ui_DrawText("Les blocs de détection s'afficheront ici après analyse (blocs multi-pistes : phase 6)", _
+    Ui_DrawText("Les blocs de détection s'afficheront ici après analyse", _
             $g_hFontNormal, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushMuted, $g_hFmtCenterWrap)
 EndFunc
 
-; Listing simple des résultats (phase 5) — remplacé par les blocs en phase 6.
-Func Ui_DrawResultsList($aR)
-    Local $iY = $aR[1] + 26
-    Local $iRowH = 18
-    Local $iMaxRows = Int(($aR[1] + $aR[3] - 10 - $iY) / $iRowH) - 1
-    If $iMaxRows < 1 Then Return
-    Local $iX = $aR[0] + 14
-    ; En-tête
-    Ui_DrawText("début", $g_hFontSmall, $iX, $iY, 80, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
-    Ui_DrawText("sample", $g_hFontSmall, $iX + 90, $iY, 300, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
-    Ui_DrawText("durée", $g_hFontSmall, $iX + 400, $iY, 70, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
-    Ui_DrawText("gain", $g_hFontSmall, $iX + 480, $iY, 80, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
-    Ui_DrawText("confiance", $g_hFontSmall, $iX + 570, $iY, 80, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
-    $iY += $iRowH
+; Vue temporelle pour la timeline (celle de la waveform, sinon source entière).
+Func Ui_GetTimelineView(ByRef $fStart, ByRef $fDur)
+    If $g_fViewDur > 0 Then
+        $fStart = $g_fViewStart
+        $fDur = $g_fViewDur
+    Else
+        $fStart = 0
+        $fDur = $g_fSourceDuration
+        If $fDur <= 0 Then $fDur = 1
+    EndIf
+EndFunc
 
-    Local $iTotal = $g_iDetections + $g_iUnknowns
-    Local $iShown = 0
-    Local $i
-    For $i = 0 To $g_iDetections - 1
-        If $iShown >= $iMaxRows Then ExitLoop
-        Ui_DrawText(Ui_FormatTime($g_aDetections[$i][1], True), $g_hFontSmall, _
-                $iX, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
-        Ui_DrawText(Ui_EllipsizeEnd($g_aDetections[$i][0], 42), $g_hFontSmall, _
-                $iX + 90, $iY, 300, $iRowH, $g_hBrushAccent, $g_hFmtLeft)
-        Ui_DrawText(StringFormat("%.3f s", $g_aDetections[$i][2]), $g_hFontSmall, _
-                $iX + 400, $iY, 70, $iRowH, $g_hBrushText, $g_hFmtLeft)
-        Ui_DrawText(StringFormat("%.1f dB", $g_aDetections[$i][4]), $g_hFontSmall, _
-                $iX + 480, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
-        Ui_DrawText(StringFormat("%.2f", $g_aDetections[$i][5]), $g_hFontSmall, _
-                $iX + 570, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
-        $iY += $iRowH
-        $iShown += 1
+; Pistes MAO : labels à gauche, blocs positionnés sur la vue temporelle.
+Func Ui_DrawTimelineTracks()
+    Local $aB = $g_aRectTlBlocks
+    Local $fViewStart, $fViewDur
+    Ui_GetTimelineView($fViewStart, $fViewDur)
+    Local $iRowH, $iVisible
+    Timeline_LayoutRows($aB, $iRowH, $iVisible)
+    Local $fPxPerSec = $aB[2] / $fViewDur
+
+    ; Lignes de pistes + labels
+    Local $iLane, $iY
+    For $iLane = 0 To $iVisible - 1
+        $iY = $aB[1] + $iLane * $iRowH
+        _GDIPlus_GraphicsDrawLine($g_hGfx, $aB[0] - $TL_LABEL_W + 8, $iY + $iRowH, _
+                $aB[0] + $aB[2], $iY + $iRowH, $g_hPenBorder)
+        ; pastille couleur + nom de piste
+        If $g_aTlLaneKind[$iLane] = 1 Then
+            _GDIPlus_GraphicsFillRect($g_hGfx, $aB[0] - $TL_LABEL_W + 10, $iY + Int($iRowH / 2) - 4, 8, 8, $g_hBrushError)
+            Ui_DrawText("INCONNU", $g_hFontSmall, $aB[0] - $TL_LABEL_W + 24, $iY, _
+                    $TL_LABEL_W - 30, $iRowH, $g_hBrushError, $g_hFmtLeft)
+        Else
+            _GDIPlus_GraphicsFillRect($g_hGfx, $aB[0] - $TL_LABEL_W + 10, $iY + Int($iRowH / 2) - 4, 8, 8, _
+                    $g_aBrushPalette[$g_aTlLaneColor[$iLane]])
+            Ui_DrawText(Ui_EllipsizeEnd($g_aTlLaneName[$iLane], 20), $g_hFontSmall, _
+                    $aB[0] - $TL_LABEL_W + 24, $iY, $TL_LABEL_W - 30, $iRowH, $g_hBrushText, $g_hFmtLeft)
+        EndIf
     Next
-    For $i = 0 To $g_iUnknowns - 1
-        If $iShown >= $iMaxRows Then ExitLoop
-        Ui_DrawText(Ui_FormatTime($g_aUnknowns[$i][0], True), $g_hFontSmall, _
-                $iX, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
-        Ui_DrawText("INCONNU", $g_hFontSmall, $iX + 90, $iY, 300, $iRowH, $g_hBrushError, $g_hFmtLeft)
-        Ui_DrawText(StringFormat("%.3f s", $g_aUnknowns[$i][1]), $g_hFontSmall, _
-                $iX + 400, $iY, 70, $iRowH, $g_hBrushText, $g_hFmtLeft)
-        Ui_DrawText(StringFormat("%.1f dB", $g_aUnknowns[$i][2]), $g_hFontSmall, _
-                $iX + 480, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
-        $iY += $iRowH
-        $iShown += 1
+    If $iVisible < $g_iTlLanes Then
+        Ui_DrawText("+ " & ($g_iTlLanes - $iVisible) & " pistes", $g_hFontSmall, _
+                $aB[0] - $TL_LABEL_W + 10, $aB[1] + $aB[3] - 16, $TL_LABEL_W, 16, $g_hBrushMuted, $g_hFmtLeft)
+    EndIf
+
+    ; Blocs
+    Local $i, $iX1, $iX2, $iBY, $iBH, $iHatch
+    For $i = 0 To $g_iTlBlocks - 1
+        $iLane = $g_aTlBlocks[$i][0]
+        If $iLane >= $iVisible Then ContinueLoop
+        $iX1 = $aB[0] + Int(($g_aTlBlocks[$i][1] - $fViewStart) * $fPxPerSec)
+        $iX2 = $aB[0] + Int(($g_aTlBlocks[$i][1] + $g_aTlBlocks[$i][2] - $fViewStart) * $fPxPerSec)
+        If $iX2 < $aB[0] Or $iX1 > $aB[0] + $aB[2] Then ContinueLoop
+        If $iX1 < $aB[0] Then $iX1 = $aB[0]
+        If $iX2 > $aB[0] + $aB[2] Then $iX2 = $aB[0] + $aB[2]
+        If $iX2 - $iX1 < 2 Then $iX2 = $iX1 + 2
+        $iBY = $aB[1] + $iLane * $iRowH + 3
+        $iBH = $iRowH - 6
+        If $g_aTlBlocks[$i][3] = 1 Then
+            ; INCONNU : fond sombre + hachures diagonales + bord rouge
+            _GDIPlus_GraphicsFillRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1, $iBH, $g_hBrushUnknownFill)
+            For $iHatch = $iX1 - $iBH To $iX2 Step 8
+                _GDIPlus_GraphicsDrawLine($g_hGfx, _
+                        ($iHatch < $iX1) ? $iX1 : $iHatch, _
+                        ($iHatch < $iX1) ? $iBY + ($iX1 - $iHatch) : $iBY, _
+                        (($iHatch + $iBH) > $iX2) ? $iX2 : $iHatch + $iBH, _
+                        (($iHatch + $iBH) > $iX2) ? $iBY + ($iX2 - $iHatch) : $iBY + $iBH, $g_hPenUnknown)
+            Next
+            _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1 - 1, $iBH - 1, $g_hPenUnknown)
+        Else
+            _GDIPlus_GraphicsFillRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1, $iBH, _
+                    $g_aBrushPalette[$g_aTlLaneColor[$iLane]])
+            _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1 - 1, $iBH - 1, $g_hPenBorder)
+        EndIf
+        If $i = $g_iHoverBlock Then _
+                _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1 - 1, $iBH - 1, $g_hPenBlockHover)
+        If $iX2 - $iX1 > 44 Then
+            Ui_DrawText(" " & Ui_EllipsizeEnd($g_aTlBlocks[$i][6], Int(($iX2 - $iX1) / 7)), _
+                    $g_hFontSmall, $iX1, $iBY, $iX2 - $iX1, $iBH, $g_hBrushText, $g_hFmtLeft)
+        EndIf
     Next
-    If $iShown < $iTotal Then
-        Ui_DrawText("+ " & ($iTotal - $iShown) & " autres…", $g_hFontSmall, _
-                $iX, $iY, 200, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
+
+    ; Tooltip du bloc survolé (dessiné en dernier, par-dessus tout)
+    If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks Then Ui_DrawBlockTooltip()
+EndFunc
+
+Func Ui_DrawBlockTooltip()
+    Local $i = $g_iHoverBlock
+    Local $iW = 240, $iH = 88
+    Local $iX = $g_iHoverX + 16
+    Local $iY = $g_iHoverY + 16
+    If $iX + $iW > $g_iRenderW - 4 Then $iX = $g_iHoverX - $iW - 8
+    If $iY + $iH > $g_iRenderH - 4 Then $iY = $g_iHoverY - $iH - 8
+    _GDIPlus_GraphicsFillRect($g_hGfx, $iX, $iY, $iW, $iH, $g_hBrushTooltipBg)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $iX, $iY, $iW - 1, $iH - 1, $g_hPenAccent)
+    Local $bUnknown = ($g_aTlBlocks[$i][3] = 1)
+    Ui_DrawText($g_aTlBlocks[$i][6], $g_hFontNormal, $iX + 10, $iY + 4, $iW - 20, 22, _
+            $bUnknown ? $g_hBrushError : $g_hBrushAccent, $g_hFmtLeft)
+    Ui_DrawText(StringFormat("%s  →  %s   (%.3f s)", _
+            Ui_FormatTime($g_aTlBlocks[$i][1], True), _
+            Ui_FormatTime($g_aTlBlocks[$i][1] + $g_aTlBlocks[$i][2], True), _
+            $g_aTlBlocks[$i][2]), _
+            $g_hFontSmall, $iX + 10, $iY + 28, $iW - 20, 18, $g_hBrushText, $g_hFmtLeft)
+    If $bUnknown Then
+        Ui_DrawText(StringFormat("niveau : %.1f dB", $g_aTlBlocks[$i][4]), _
+                $g_hFontSmall, $iX + 10, $iY + 48, $iW - 20, 18, $g_hBrushText, $g_hFmtLeft)
+        Ui_DrawText("absent de la bibliothèque", $g_hFontSmall, _
+                $iX + 10, $iY + 66, $iW - 20, 18, $g_hBrushMuted, $g_hFmtLeft)
+    Else
+        Ui_DrawText(StringFormat("gain : %.1f dB", $g_aTlBlocks[$i][4]), _
+                $g_hFontSmall, $iX + 10, $iY + 48, $iW - 20, 18, $g_hBrushText, $g_hFmtLeft)
+        Ui_DrawText(StringFormat("confiance : %.2f", $g_aTlBlocks[$i][5]), _
+                $g_hFontSmall, $iX + 10, $iY + 66, $iW - 20, 18, $g_hBrushText, $g_hFmtLeft)
     EndIf
 EndFunc
 
@@ -566,6 +653,22 @@ Func Ui_Dispose()
     $g_hPenWaveLine = 0
     $g_hPenWave = 0
     $g_hPenRuler = 0
+
+    Local $iC
+    For $iC = 0 To 11
+        If $g_aBrushPalette[$iC] <> 0 Then _GDIPlus_BrushDispose($g_aBrushPalette[$iC])
+        $g_aBrushPalette[$iC] = 0
+    Next
+    If $g_hBrushUnknownFill <> 0 Then _GDIPlus_BrushDispose($g_hBrushUnknownFill)
+    If $g_hBrushTooltipBg <> 0 Then _GDIPlus_BrushDispose($g_hBrushTooltipBg)
+    If $g_hPenBlockHover <> 0 Then _GDIPlus_PenDispose($g_hPenBlockHover)
+    If $g_hPenUnknown <> 0 Then _GDIPlus_PenDispose($g_hPenUnknown)
+    If $g_hPenAccent <> 0 Then _GDIPlus_PenDispose($g_hPenAccent)
+    $g_hBrushUnknownFill = 0
+    $g_hBrushTooltipBg = 0
+    $g_hPenBlockHover = 0
+    $g_hPenUnknown = 0
+    $g_hPenAccent = 0
 
     If $g_hFmtLeft <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtLeft)
     If $g_hFmtCenter <> 0 Then _GDIPlus_StringFormatDispose($g_hFmtCenter)
