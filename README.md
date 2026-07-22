@@ -36,6 +36,7 @@ Prérequis :
 - AutoIt 3.3.16+
 - ffmpeg : `bin\ffmpeg.exe` (non versionné — télécharger un build statique,
   ex. gyan.dev "essentials") ou disponible dans le PATH
+- Python 3.10+ avec numpy (moteur d'analyse, phases 4+)
 
 ```
 AutoIt3.exe SampleTracker.au3
@@ -46,11 +47,29 @@ AutoIt3.exe SampleTracker.au3
 ```
 AutoIt3.exe tests\Phase2Test.au3
 AutoIt3.exe tests\Phase3Test.au3
+python engine\test_engine.py
 ```
 
 Exit 0 = PASS, 1 = FAIL, 2 = SKIP (ffmpeg absent). Phase 2 : extraction MP4 →
 PCM vérifié via l'en-tête WAV. Phase 3 : pics waveform (silence + carré 440 Hz),
-mipmaps, zoom et clamps de vue.
+mipmaps, zoom et clamps de vue. Phase 4 : mix synthétique à vérité terrain
+connue (superpositions, son inconnu, ré-encodage MP3).
+
+## Moteur d'analyse (phase 4)
+
+```
+python engine\analyze.py --source mix.wav --samples DOSSIER --output result.json
+                         [--threshold 0.6] [--max-iter 200] [--progress]
+```
+
+Corrélation croisée normalisée par FFT + matching pursuit : meilleur candidat,
+gain estimé par moindres carrés, soustraction du résidu, itération. Zones du
+résidu au-dessus de `--floor-db` (défaut −40 dBFS) → blocs INCONNU. Sortie
+JSON : détections (sample, start, duration, gain, gain_db, confidence),
+inconnus (start, duration, rms_db), résidu global.
+
+Précision mesurée (mix synthétique) : position < 10 ms, gain < 0.3 dB (WAV)
+/ < 0.8 dB (MP3 192k), superpositions résolues, zéro fausse détection.
 
 ## Utilisation (phase 1)
 
