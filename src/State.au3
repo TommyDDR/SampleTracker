@@ -36,6 +36,11 @@ Global $g_hLastClickTimer = 0   ; détection double-clic
 Global $g_iLastClickX = -1000
 Global $g_iLastClickY = -1000
 
+; Analyse (phase 5)
+Global $g_bAnalyzing = False
+Global $g_hAnalyzeTimer = 0
+Global $g_iResultsVersion = 0   ; incrémenté quand les résultats changent (clé cache UI)
+
 ; Message de statut (barre du bas)
 Global $g_sStatusText = ""
 Global $g_iStatusKind = 0       ; 0 info, 1 succès, 2 erreur

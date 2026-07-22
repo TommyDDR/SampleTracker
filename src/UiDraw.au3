@@ -130,7 +130,9 @@ Func Ui_BuildCacheKey()
             & $g_iWaveVersion & "|" & Waveform_Progress() & "|" & $g_fViewStart & "|" & $g_fViewDur & "|" _
             & $g_fWaveYZoom & "|" _
             & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
-            & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus
+            & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus & "|" _
+            & $g_bAnalyzing & "|" & $g_iEngineProgress & "|" & $g_iResultsVersion & "|" _
+            & $g_sEngineLastLine
 EndFunc
 
 Func Ui_DrawFrame()
@@ -167,7 +169,7 @@ Func Ui_DrawButton($iIndex)
     Local $iY = $g_aRectButtons[$iIndex][1]
     Local $iW = $g_aRectButtons[$iIndex][2]
     Local $iH = $g_aRectButtons[$iIndex][3]
-    Local $bEnabled = ($iIndex <> $BTN_ANALYZE) Or App_IsAnalyzeReady()
+    Local $bEnabled = ($iIndex <> $BTN_ANALYZE) Or (App_IsAnalyzeReady() And Not $g_bAnalyzing)
     Local $hFill = $g_hBrushButton
     Local $hText = $g_hBrushText
     If Not $bEnabled Then
@@ -357,8 +359,81 @@ Func Ui_DrawTimelineZone()
     Local $aR = $g_aRectTimeline
     Ui_DrawPanel($aR)
     Ui_DrawText("TIMELINE", $g_hFontZone, $aR[0] + 14, $aR[1] + 4, 200, 20, $g_hBrushMuted, $g_hFmtLeft)
-    Ui_DrawText("Les pistes et blocs de détection s'afficheront ici (phases 3 à 6)", _
+
+    If $g_bAnalyzing Then
+        ; Barre de progression du moteur
+        Local $iBarW = $aR[2] - 200
+        If $iBarW < 100 Then $iBarW = 100
+        Local $iBarX = $aR[0] + Int(($aR[2] - $iBarW) / 2)
+        Local $iBarY = $aR[1] + Int($aR[3] / 2) - 10
+        _GDIPlus_GraphicsDrawRect($g_hGfx, $iBarX, $iBarY, $iBarW, 20, $g_hPenBorder)
+        _GDIPlus_GraphicsFillRect($g_hGfx, $iBarX + 2, $iBarY + 2, _
+                Int(($iBarW - 4) * $g_iEngineProgress / 100), 16, $g_hBrushAccent)
+        Ui_DrawText("Analyse en cours — " & $g_iEngineProgress & " %", $g_hFontNormal, _
+                $aR[0], $iBarY - 30, $aR[2], 24, $g_hBrushText, $g_hFmtCenter)
+        Ui_DrawText(Ui_EllipsizeEnd($g_sEngineLastLine, 100), $g_hFontSmall, _
+                $aR[0], $iBarY + 26, $aR[2], 20, $g_hBrushMuted, $g_hFmtCenter)
+        Return
+    EndIf
+
+    If $g_iDetections + $g_iUnknowns > 0 Then
+        Ui_DrawResultsList($aR)
+        Return
+    EndIf
+
+    Ui_DrawText("Les blocs de détection s'afficheront ici après analyse (blocs multi-pistes : phase 6)", _
             $g_hFontNormal, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushMuted, $g_hFmtCenterWrap)
+EndFunc
+
+; Listing simple des résultats (phase 5) — remplacé par les blocs en phase 6.
+Func Ui_DrawResultsList($aR)
+    Local $iY = $aR[1] + 26
+    Local $iRowH = 18
+    Local $iMaxRows = Int(($aR[1] + $aR[3] - 10 - $iY) / $iRowH) - 1
+    If $iMaxRows < 1 Then Return
+    Local $iX = $aR[0] + 14
+    ; En-tête
+    Ui_DrawText("début", $g_hFontSmall, $iX, $iY, 80, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
+    Ui_DrawText("sample", $g_hFontSmall, $iX + 90, $iY, 300, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
+    Ui_DrawText("durée", $g_hFontSmall, $iX + 400, $iY, 70, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
+    Ui_DrawText("gain", $g_hFontSmall, $iX + 480, $iY, 80, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
+    Ui_DrawText("confiance", $g_hFontSmall, $iX + 570, $iY, 80, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
+    $iY += $iRowH
+
+    Local $iTotal = $g_iDetections + $g_iUnknowns
+    Local $iShown = 0
+    Local $i
+    For $i = 0 To $g_iDetections - 1
+        If $iShown >= $iMaxRows Then ExitLoop
+        Ui_DrawText(Ui_FormatTime($g_aDetections[$i][1], True), $g_hFontSmall, _
+                $iX, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
+        Ui_DrawText(Ui_EllipsizeEnd($g_aDetections[$i][0], 42), $g_hFontSmall, _
+                $iX + 90, $iY, 300, $iRowH, $g_hBrushAccent, $g_hFmtLeft)
+        Ui_DrawText(StringFormat("%.3f s", $g_aDetections[$i][2]), $g_hFontSmall, _
+                $iX + 400, $iY, 70, $iRowH, $g_hBrushText, $g_hFmtLeft)
+        Ui_DrawText(StringFormat("%.1f dB", $g_aDetections[$i][4]), $g_hFontSmall, _
+                $iX + 480, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
+        Ui_DrawText(StringFormat("%.2f", $g_aDetections[$i][5]), $g_hFontSmall, _
+                $iX + 570, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
+        $iY += $iRowH
+        $iShown += 1
+    Next
+    For $i = 0 To $g_iUnknowns - 1
+        If $iShown >= $iMaxRows Then ExitLoop
+        Ui_DrawText(Ui_FormatTime($g_aUnknowns[$i][0], True), $g_hFontSmall, _
+                $iX, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
+        Ui_DrawText("INCONNU", $g_hFontSmall, $iX + 90, $iY, 300, $iRowH, $g_hBrushError, $g_hFmtLeft)
+        Ui_DrawText(StringFormat("%.3f s", $g_aUnknowns[$i][1]), $g_hFontSmall, _
+                $iX + 400, $iY, 70, $iRowH, $g_hBrushText, $g_hFmtLeft)
+        Ui_DrawText(StringFormat("%.1f dB", $g_aUnknowns[$i][2]), $g_hFontSmall, _
+                $iX + 480, $iY, 80, $iRowH, $g_hBrushText, $g_hFmtLeft)
+        $iY += $iRowH
+        $iShown += 1
+    Next
+    If $iShown < $iTotal Then
+        Ui_DrawText("+ " & ($iTotal - $iShown) & " autres…", $g_hFontSmall, _
+                $iX, $iY, 200, $iRowH, $g_hBrushMuted, $g_hFmtLeft)
+    EndIf
 EndFunc
 
 Func Ui_DrawSamplesZone()

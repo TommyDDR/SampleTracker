@@ -24,6 +24,7 @@
 #include "src\Ffmpeg.au3"
 #include "src\Wav.au3"
 #include "src\Waveform.au3"
+#include "src\Engine.au3"
 #include "src\UiDraw.au3"
 #include "src\Actions.au3"
 #include "src\Drop.au3"
@@ -78,6 +79,7 @@ Func App_Loop()
         App_HandleEvents()
         App_HandlePerfKey()
         Action_PollExtraction() ; fin d'extraction ffmpeg (coût nul hors extraction)
+        Action_PollEngine()     ; progression/fin du moteur d'analyse
         Waveform_Step()         ; calcul des pics par lots (coût nul hors calcul)
         App_ProcessWheel()
         App_UpdateDrag()
@@ -229,6 +231,7 @@ EndFunc
 
 Func App_Shutdown()
     Ffmpeg_Cancel()
+    Engine_Cancel()
     Render_RunDisposers()
     Render_Shutdown($g_hGui)
     _GDIPlus_Shutdown()
