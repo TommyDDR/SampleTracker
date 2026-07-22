@@ -128,6 +128,7 @@ Func Ui_BuildCacheKey()
     Return $g_iRenderW & "|" & $g_iRenderH & "|" & $g_iHoverButton & "|" _
             & $g_sSourcePath & "|" & $g_sSourceWav & "|" & $g_fSourceDuration & "|" & $iExtractPhase & "|" _
             & $g_iWaveVersion & "|" & Waveform_Progress() & "|" & $g_fViewStart & "|" & $g_fViewDur & "|" _
+            & $g_fWaveYZoom & "|" _
             & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
             & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus
 EndFunc
@@ -235,18 +236,29 @@ Func Ui_DrawWaveform()
     _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0], $fMid, $aR[0] + $aR[2], $fMid, $g_hPenWaveLine)
 
     ; Une ligne verticale min/max par colonne de pixels
+    ; (amplitude multipliée par le zoom Y, clampée à la bande)
     Local $fSecPerPx = $g_fViewDur / $aR[2]
+    Local $fScale = $fHalf * $g_fWaveYZoom / 32768
+    Local $iClipTop = $iWaveY + 1
+    Local $iClipBottom = $iWaveY + $iWaveH - 2
     Local $x, $iMin, $iMax, $iY1, $iY2
     For $x = 0 To $aR[2] - 1
         Waveform_GetColumnPeaks($g_fViewStart + $x * $fSecPerPx, _
                 $g_fViewStart + ($x + 1) * $fSecPerPx, $iMin, $iMax)
-        $iY1 = Int($fMid - $iMax * $fHalf / 32768)
-        $iY2 = Int($fMid - $iMin * $fHalf / 32768)
+        $iY1 = Int($fMid - $iMax * $fScale)
+        $iY2 = Int($fMid - $iMin * $fScale)
+        If $iY1 < $iClipTop Then $iY1 = $iClipTop
+        If $iY2 > $iClipBottom Then $iY2 = $iClipBottom
         If $iY2 - $iY1 < 1 Then $iY2 = $iY1 + 1
         _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0] + $x, $iY1, $aR[0] + $x, $iY2, $g_hPenWave)
     Next
 
     Ui_DrawRuler($aR[0], $aR[1], $aR[2], $iRulerH)
+    ; Indicateur de zoom amplitude
+    If $g_fWaveYZoom > 1 Then
+        Ui_DrawText(StringFormat("Y ×%.1f", $g_fWaveYZoom), $g_hFontSmall, _
+                $aR[0], $aR[1] + $iRulerH + 2, $aR[2] - 6, 14, $g_hBrushMuted, $g_hFmtRight)
+    EndIf
 EndFunc
 
 ; Règle temporelle : pas adaptatif (1/2/5), libellés m:ss ou m:ss.cc.

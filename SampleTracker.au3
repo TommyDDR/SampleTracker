@@ -133,25 +133,36 @@ Func App_UpdateHover()
 EndFunc
 
 ; Accumule le delta molette (handler de message : rester minimal).
+; Ctrl enfoncé (MK_CONTROL dans le low word) = zoom amplitude.
 Func App_OnMouseWheel($hWnd, $iMsg, $wParam, $lParam)
     #forceref $hWnd, $iMsg, $lParam
     Local $iDelta = BitAND(BitShift($wParam, 16), 0xFFFF)
     If $iDelta > 32767 Then $iDelta -= 65536
-    $g_iWheelDelta += $iDelta
+    If BitAND($wParam, 0x0008) Then ; MK_CONTROL
+        $g_iWheelDeltaCtrl += $iDelta
+    Else
+        $g_iWheelDelta += $iDelta
+    EndIf
     Return 0
 EndFunc
 
 ; Zoom autour du curseur (consommé chaque frame).
+; Molette = zoom temporel (X), Ctrl+molette = zoom amplitude (Y).
 Func App_ProcessWheel()
-    If $g_iWheelDelta = 0 Then Return
+    If $g_iWheelDelta = 0 And $g_iWheelDeltaCtrl = 0 Then Return
     Local $iDelta = $g_iWheelDelta
+    Local $iDeltaCtrl = $g_iWheelDeltaCtrl
     $g_iWheelDelta = 0
+    $g_iWheelDeltaCtrl = 0
     If Not $g_bWaveReady Then Return
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
     If Not Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then Return
-    Local $fAnchor = $g_fViewStart + ($aInfo[0] - $g_aRectWave[0]) * $g_fViewDur / $g_aRectWave[2]
-    Waveform_Zoom(0.8 ^ ($iDelta / 120), $fAnchor)
+    If $iDelta <> 0 Then
+        Local $fAnchor = $g_fViewStart + ($aInfo[0] - $g_aRectWave[0]) * $g_fViewDur / $g_aRectWave[2]
+        Waveform_Zoom(0.8 ^ ($iDelta / 120), $fAnchor)
+    EndIf
+    If $iDeltaCtrl <> 0 Then Waveform_ZoomY(1.25 ^ ($iDeltaCtrl / 120))
 EndFunc
 
 ; Pan par glisser (poursuivi tant que le bouton reste enfoncé).

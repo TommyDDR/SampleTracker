@@ -40,6 +40,7 @@ Global $g_aWaveMipMax[0]
 ; Vue (fenêtre temporelle affichée)
 Global $g_fViewStart = 0
 Global $g_fViewDur = 0
+Global $g_fWaveYZoom = 1        ; zoom amplitude (axe Y), 1 = pleine échelle
 
 Func Waveform_Reset()
     $g_tWaveShorts = 0
@@ -221,6 +222,14 @@ EndFunc
 Func Waveform_ResetView()
     $g_fViewStart = 0
     $g_fViewDur = $g_fWaveDuration
+    $g_fWaveYZoom = 1
+EndFunc
+
+; Zoom amplitude, clampé [1, 100].
+Func Waveform_ZoomY($fFactor)
+    $g_fWaveYZoom *= $fFactor
+    If $g_fWaveYZoom < 1 Then $g_fWaveYZoom = 1
+    If $g_fWaveYZoom > 100 Then $g_fWaveYZoom = 100
 EndFunc
 
 ; Clamp la vue dans [0, durée].

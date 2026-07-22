@@ -28,6 +28,7 @@ Global $g_sUiCacheKey = ""      ; clé du cache UI plein écran (§7.3 du doc re
 
 ; Interactions waveform (phase 3)
 Global $g_iWheelDelta = 0       ; accumulé par WM_MOUSEWHEEL, consommé dans la boucle
+Global $g_iWheelDeltaCtrl = 0   ; idem avec Ctrl enfoncé (zoom amplitude)
 Global $g_bWaveDragging = False
 Global $g_iDragStartX = 0
 Global $g_fDragStartView = 0
