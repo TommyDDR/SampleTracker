@@ -151,27 +151,69 @@ EndFunc
 
 ; Géométrie de la grille de la bibliothèque (partagée par le dessin et le
 ; hit-test : les deux doivent voir exactement les mêmes cases).
+; Remplissage par lignes : le débordement se fait vers le bas, ce qui rend le
+; défilement vertical naturel.
+Global Const $LAYOUT_SCROLLBAR_W = 10
+
 Func Layout_SampleGrid(ByRef $iCols, ByRef $iRows, ByRef $iColW, ByRef $iRowH)
     $iColW = 240
     $iRowH = 20
-    $iCols = Int($g_aRectSamplesList[2] / $iColW)
+    $iCols = Int(($g_aRectSamplesList[2] - $LAYOUT_SCROLLBAR_W) / $iColW)
     If $iCols < 1 Then $iCols = 1
     $iRows = Int($g_aRectSamplesList[3] / $iRowH)
     If $iRows < 1 Then $iRows = 1
 EndFunc
 
-; Index du sample sous (x, y) dans la grille, ou -1. $iShown = nombre de
-; cases réellement dessinées (les suivantes sont résumées par « + N autres »).
-Func Layout_HitSample($iX, $iY, $iShown)
+; Nombre total de lignes nécessaires, et défilement maximal.
+Func Layout_SampleMaxScroll($iCount)
+    Local $iCols, $iRows, $iColW, $iRowH
+    Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH)
+    Local $iTotalRows = Ceiling($iCount / $iCols)
+    Local $iMax = $iTotalRows - $iRows
+    Return ($iMax > 0) ? $iMax : 0
+EndFunc
+
+; Index du sample sous (x, y), en tenant compte du défilement. -1 si aucun.
+Func Layout_HitSample($iX, $iY, $iCount)
     If Not Layout_PointInRect($iX, $iY, $g_aRectSamplesList) Then Return -1
+    If $iX >= $g_aRectSamplesList[0] + $g_aRectSamplesList[2] - $LAYOUT_SCROLLBAR_W Then Return -1
     Local $iCols, $iRows, $iColW, $iRowH
     Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH)
     Local $iCol = Int(($iX - $g_aRectSamplesList[0]) / $iColW)
     Local $iRow = Int(($iY - $g_aRectSamplesList[1]) / $iRowH)
     If $iCol < 0 Or $iCol >= $iCols Or $iRow < 0 Or $iRow >= $iRows Then Return -1
-    Local $iIndex = $iCol * $iRows + $iRow
-    If $iIndex >= $iShown Then Return -1
+    Local $iIndex = ($iRow + $g_iSamplesScroll) * $iCols + $iCol
+    If $iIndex < 0 Or $iIndex >= $iCount Then Return -1
     Return $iIndex
+EndFunc
+
+; Borne le défilement de la bibliothèque.
+Func Layout_ClampSamplesScroll($iCount)
+    Local $iMax = Layout_SampleMaxScroll($iCount)
+    If $g_iSamplesScroll > $iMax Then $g_iSamplesScroll = $iMax
+    If $g_iSamplesScroll < 0 Then $g_iSamplesScroll = 0
+EndFunc
+
+; Index de la piste dont le libellé est sous (x, y) dans la timeline, ou -1.
+Func Layout_HitLaneLabel($iX, $iY, $iVisibleLanes, $iRowH)
+    If $iX < $g_aRectTimeline[0] Or $iX >= $g_aRectTlBlocks[0] Then Return -1
+    Local $iLane = Int(($iY - $g_aRectTlBlocks[1]) / $iRowH)
+    If $iLane < 0 Or $iLane >= $iVisibleLanes Then Return -1
+    Return $iLane
+EndFunc
+
+; Ajuste la hauteur de la timeline au nombre de pistes et donne l'espace
+; libéré à la bibliothèque (appelé à la fin d'une analyse).
+Func Layout_FitTimelineToLanes($iLanes, $iRowH)
+    If $g_iLayoutH <= 0 Then Return
+    ; hauteur timeline = en-tête + pistes + marge basse
+    Local $iNeeded = 24 + $iLanes * $iRowH + 10
+    If $iNeeded < $LAYOUT_TIMELINE_MIN_H Then $iNeeded = $LAYOUT_TIMELINE_MIN_H
+    Local $iFree = $g_iLayoutH - $LAYOUT_TOPBAR_H - $LAYOUT_STATUS_H - 4 * $LAYOUT_MARGIN
+    Local $iRest = $iFree - $g_iLayoutSourceH - $iNeeded
+    If $iRest < $LAYOUT_SAMPLES_MIN_H Then Return ; pas assez de place : on ne touche à rien
+    $g_iLayoutSamplesH = $iRest
+    Layout_Recompute($g_iLayoutW, $g_iLayoutH)
 EndFunc
 
 ; Poignée de redimensionnement sous (x, y) : bande centrée sur l'espace

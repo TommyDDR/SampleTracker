@@ -6,6 +6,7 @@
 
 #include <GUIConstantsEx.au3>
 #include <WindowsConstants.au3>
+#include <WinAPI.au3>
 
 #include "..\src\State.au3"
 #include "..\src\Layout.au3"
@@ -59,12 +60,49 @@ Func Main()
     Layout_Recompute(1280, 720)
     Local $iCols, $iRows, $iColW, $iRowH
     Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH)
-    ; case (colonne 0, ligne 2) = index 2
-    Local $iHitX = $g_aRectSamplesList[0] + 5
-    Local $iHitY = $g_aRectSamplesList[1] + 2 * $iRowH + 5
-    Assert(Layout_HitSample($iHitX, $iHitY, 5) = 2, "hit-test grille : index 2")
-    Assert(Layout_HitSample($iHitX, $iHitY, 2) = -1, "hit-test hors des cases dessinées")
+    ; Remplissage par lignes : (ligne 0, colonne 1) = index 1
+    $g_iSamplesScroll = 0
+    Local $iHitX = $g_aRectSamplesList[0] + $iColW + 5
+    Local $iHitY = $g_aRectSamplesList[1] + 5
+    Assert(Layout_HitSample($iHitX, $iHitY, 5) = 1, "hit-test grille : index 1 (ligne 0, colonne 1)")
+    Assert(Layout_HitSample($iHitX, $iHitY, 1) = -1, "hit-test au-delà du nombre de samples")
     Assert(Layout_HitSample(5, 5, 5) = -1, "hit-test hors de la grille")
+    ; La barre de défilement n'est pas une case cliquable
+    Assert(Layout_HitSample($g_aRectSamplesList[0] + $g_aRectSamplesList[2] - 3, $iHitY, 5) = -1, _
+            "hit-test sur la barre de défilement")
+
+    ; --- Défilement de la bibliothèque ------------------------------------
+    Local $iBig = $iCols * ($iRows + 4) ; 4 lignes de trop
+    ReDim $g_aSampleFiles[$iBig]
+    For $i = 0 To $iBig - 1
+        $g_aSampleFiles[$i] = "big" & $i & ".wav"
+    Next
+    Assert(Layout_SampleMaxScroll($iBig) = 4, _
+            "défilement maximal = 4 lignes (obtenu " & Layout_SampleMaxScroll($iBig) & ")")
+    Assert(Layout_SampleMaxScroll($iCols) = 0, "pas de défilement si tout tient")
+    ; Après défilement d'une ligne, la première case correspond à la ligne 1
+    $g_iSamplesScroll = 1
+    Assert(Layout_HitSample($g_aRectSamplesList[0] + 5, $g_aRectSamplesList[1] + 5, $iBig) = $iCols, _
+            "hit-test décalé par le défilement")
+    $g_iSamplesScroll = 999
+    Layout_ClampSamplesScroll($iBig)
+    Assert($g_iSamplesScroll = 4, "défilement borné au maximum")
+    $g_iSamplesScroll = -5
+    Layout_ClampSamplesScroll($iBig)
+    Assert($g_iSamplesScroll = 0, "défilement borné à zéro")
+
+    ; --- Ajustement de la timeline en fin d'analyse -----------------------
+    $g_iLayoutSourceH = $LAYOUT_SOURCE_DEFAULT_H
+    $g_iLayoutSamplesH = $LAYOUT_SAMPLES_DEFAULT_H
+    Layout_Recompute(1280, 720)
+    Local $iSamplesBefore = $g_iLayoutSamplesH
+    Layout_FitTimelineToLanes(3, 30) ; 3 pistes seulement
+    Assert($g_iLayoutSamplesH > $iSamplesBefore, _
+            "la bibliothèque récupère la place libérée par la timeline")
+    Assert($g_aRectTimeline[3] >= 24 + 3 * 30, "la timeline garde la place de ses 3 pistes")
+    ; Beaucoup de pistes : la bibliothèque ne descend pas sous son minimum
+    Layout_FitTimelineToLanes(50, 30)
+    Assert($g_iLayoutSamplesH >= $LAYOUT_SAMPLES_MIN_H, "bibliothèque jamais sous son minimum")
 
     ; --- Config : écriture puis relecture ---------------------------------
     Local $sIni = @TempDir & "\SampleTrackerPrefsTest.ini"

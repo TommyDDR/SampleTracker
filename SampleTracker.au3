@@ -83,6 +83,11 @@ Func App_ShotMode($sPath, $bAnalyze)
         If $bReady Then ExitLoop
         Sleep(20)
     WEnd
+    ; --played <nom> : simule la mise en évidence du dernier sample joué
+    Local $i
+    For $i = 1 To $CmdLine[0] - 1
+        If $CmdLine[$i] = "--played" Then $g_sLastPlayed = $CmdLine[$i + 1]
+    Next
     Ui_Redraw() ; forcer un rendu complet, cache ignoré
     Render_Present()
     Render_SaveBackbuffer($sPath)
@@ -192,11 +197,26 @@ Func App_UpdateHover()
     $g_iHoverX = $aInfo[0]
     $g_iHoverY = $aInfo[1]
     ; Sample survolé dans la bibliothèque
-    $g_iHoverSample = Layout_HitSample($aInfo[0], $aInfo[1], Ui_SamplesShownCount())
+    $g_iHoverSample = Layout_HitSample($aInfo[0], $aInfo[1], UBound($g_aSampleFiles))
+    $g_bSamplesMore = App_HitSamplesMore($aInfo[0], $aInfo[1])
+    ; Libellé de piste survolé (infobulle avec le nom complet)
+    $g_iHoverLane = -1
+    If $g_iTlLanes > 0 And $g_iHoverBlock = -1 Then
+        Local $iRowH, $iVisible
+        Timeline_LayoutRows($g_aRectTlBlocks, $iRowH, $iVisible)
+        $g_iHoverLane = Layout_HitLaneLabel($aInfo[0], $aInfo[1], $iVisible, $iRowH)
+    EndIf
     ; Poignée de redimensionnement : curseur double flèche verticale
     $g_iHoverSplitter = ($g_iDragSplitter <> $SPLIT_NONE) _
             ? $g_iDragSplitter : Layout_HitSplitter($aInfo[0], $aInfo[1])
     App_UpdateCursor($g_iHoverSplitter <> $SPLIT_NONE)
+EndFunc
+
+; Ligne « + N autres… » de la bibliothèque (au-dessus de la grille).
+Func App_HitSamplesMore($iX, $iY)
+    If Layout_SampleMaxScroll(UBound($g_aSampleFiles)) <= 0 Then Return False
+    Return $iX >= $g_aRectSamplesList[0] And $iX < $g_aRectSamplesList[0] + $g_aRectSamplesList[2] _
+            And $iY >= $g_aRectSamplesList[1] - 20 And $iY < $g_aRectSamplesList[1]
 EndFunc
 
 ; Bascule le curseur souris entre flèche et double flèche verticale.
@@ -229,9 +249,15 @@ Func App_ProcessWheel()
     Local $iDeltaCtrl = $g_iWheelDeltaCtrl
     $g_iWheelDelta = 0
     $g_iWheelDeltaCtrl = 0
-    If Not $g_bWaveReady Then Return
     Local $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
+    ; Molette sur la bibliothèque : défilement de la liste
+    If Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectSamplesList) Then
+        $g_iSamplesScroll -= Int(($iDelta + $iDeltaCtrl) / 120) * 3
+        Layout_ClampSamplesScroll(UBound($g_aSampleFiles))
+        Return
+    EndIf
+    If Not $g_bWaveReady Then Return
     ; Zoom X actif sur la waveform ET sur la zone de blocs timeline (vue partagée)
     Local $aRect = 0
     If Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
@@ -291,8 +317,17 @@ Func App_OnPrimaryDown()
         Return
     EndIf
 
+    ; « + N autres… » : défile d'une page pour atteindre le reste de la liste
+    If App_HitSamplesMore($aInfo[0], $aInfo[1]) Then
+        Local $iCols, $iRows, $iColW, $iRowH2
+        Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH2)
+        $g_iSamplesScroll += $iRows
+        Layout_ClampSamplesScroll(UBound($g_aSampleFiles))
+        Return
+    EndIf
+
     ; Sample de la bibliothèque : prévisualisation
-    Local $iSample = Layout_HitSample($aInfo[0], $aInfo[1], Ui_SamplesShownCount())
+    Local $iSample = Layout_HitSample($aInfo[0], $aInfo[1], UBound($g_aSampleFiles))
     If $iSample >= 0 Then
         Action_PreviewSample($g_aSampleFiles[$iSample])
         Return
@@ -308,6 +343,11 @@ Func App_OnPrimaryDown()
         If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks _
                 And $g_aTlBlocks[$g_iHoverBlock][3] = 0 Then _
                 Action_PreviewSample($g_aTlBlocks[$g_iHoverBlock][6])
+    ElseIf $g_iHoverLane >= 0 And $g_iHoverLane < $g_iTlLanes _
+            And $g_aTlLaneKind[$g_iHoverLane] = 0 Then
+        ; Clic sur un libellé de piste : même prévisualisation
+        Action_PreviewSample($g_aTlLaneName[$g_iHoverLane])
+        Return
     EndIf
     If IsArray($aRect) Then
         If $g_hLastClickTimer <> 0 And TimerDiff($g_hLastClickTimer) < 400 _

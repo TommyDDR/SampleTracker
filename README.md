@@ -90,9 +90,15 @@ Précision mesurée (mix synthétique) : position < 10 ms, gain < 0.3 dB (WAV)
 - Lecture : boutons « Lecture / Pause » et « Stop » dans la barre du haut.
   Un clic dans la waveform (ou la timeline) place la tête de lecture ;
   « Stop » y revient. Le trait jaune suit la lecture.
-- Écouter un sample : clic sur un nom dans la bibliothèque, ou sur un bloc de
-  détection dans la timeline. La prévisualisation n'interrompt pas la lecture
-  de la source (canaux MCI distincts).
+- Écouter un sample : clic sur un nom dans la bibliothèque, sur un bloc de
+  détection ou sur un libellé de piste dans la timeline. La prévisualisation
+  n'interrompt pas la lecture de la source (canaux MCI distincts). Le dernier
+  sample joué reste en vert jusqu'au suivant, et sa piste est surlignée.
+- Bibliothèque : liste défilante (molette, barre à droite) ; « + N autres… »
+  fait défiler d'une page.
+- Survol d'un bloc ou d'un libellé de piste : infobulle avec le nom complet.
+- Fin d'analyse : la timeline se réduit au nombre de pistes détectées et la
+  bibliothèque récupère la place gagnée.
 - Redimensionner les zones : glisser l'espace entre deux blocs (le curseur
   passe en double flèche au survol). Les hauteurs sont conservées.
 - `F3` : profiler (temps par section dans le titre de la fenêtre).
@@ -108,7 +114,7 @@ Le rendu allant directement dans le DC de la fenêtre, une capture d'écran
 classique ne voit rien. Mode dédié :
 
 ```
-AutoIt3.exe SampleTracker.au3 --shot vue.png [--analyze]
+AutoIt3.exe SampleTracker.au3 --shot vue.png [--analyze] [--played nom.wav]
 ```
 
 Recharge la dernière session, attend que tout soit prêt (extraction, waveform,

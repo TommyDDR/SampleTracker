@@ -93,6 +93,8 @@ Func Action_LoadSamplesDir($sDir)
     Action_AbortAnalysis()
     $g_aSampleFiles = $aNames
     $g_sSamplesDir = $sDir
+    $g_iSamplesScroll = 0
+    $g_sLastPlayed = ""
     Ui_SetStatus($aFiles[0] & " samples chargés depuis " & $sDir, 1)
 EndFunc
 
@@ -143,6 +145,11 @@ Func Action_PollEngine()
             Ui_SetStatus("Résultats illisibles (TSV) : " & $g_sEngineTsv, 2)
         Else
             Timeline_Rebuild()
+            ; La timeline se réduit au nombre de pistes ; la place gagnée va
+            ; à la bibliothèque.
+            Local $iRowH, $iVisible
+            Timeline_LayoutRows($g_aRectTlBlocks, $iRowH, $iVisible)
+            Layout_FitTimelineToLanes($g_iTlLanes, $iRowH)
             Ui_SetStatus(StringFormat("Analyse terminée en %.1f s : %d détection(s), %d inconnu(s)", _
                     TimerDiff($g_hAnalyzeTimer) / 1000, $g_iDetections, $g_iUnknowns), 1)
         EndIf
@@ -174,6 +181,8 @@ Func Action_PreviewSample($sRelName)
         Ui_SetStatus("Lecture impossible : " & $sRelName, 2)
         Return
     EndIf
+    ; Reste mis en évidence jusqu'à la lecture d'un autre sample
+    $g_sLastPlayed = $sRelName
     Ui_SetStatus("Lecture : " & $sRelName, 0)
 EndFunc
 

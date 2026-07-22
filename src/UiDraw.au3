@@ -67,6 +67,8 @@ Global $g_hPenAccent = 0
 Global $g_hPenPlayhead = 0
 Global $g_hBrushPlayhead = 0
 Global $g_hBrushSplitter = 0
+Global $g_hBrushPlayedBg = 0    ; fond du dernier élément joué
+Global $g_hBrushScrollThumb = 0
 
 Func Ui_Startup()
     $g_hFamilyUi = _GDIPlus_FontFamilyCreate("Segoe UI")
@@ -113,6 +115,8 @@ Func Ui_Startup()
     $g_hPenPlayhead = _GDIPlus_PenCreate(0xFFF0C040, 1)
     $g_hBrushPlayhead = _GDIPlus_BrushCreateSolid(0xFFF0C040)
     $g_hBrushSplitter = _GDIPlus_BrushCreateSolid($UI_COLOR_ACCENT)
+    $g_hBrushPlayedBg = _GDIPlus_BrushCreateSolid(0xFF1E3D2A)
+    $g_hBrushScrollThumb = _GDIPlus_BrushCreateSolid(0xFF4A4A58)
 
     $g_hFmtLeft = _GDIPlus_StringFormatCreate($UI_GDIP_NOWRAP)
     _GDIPlus_StringFormatSetAlign($g_hFmtLeft, 0)
@@ -164,7 +168,8 @@ Func Ui_BuildCacheKey()
             & ($g_iHoverBlock >= 0 ? $g_iHoverX & ":" & $g_iHoverY : "") & "|" _
             & $g_iHoverSplitter & "|" & $g_iDragSplitter & "|" _
             & $g_iLayoutSourceH & "|" & $g_iLayoutSamplesH & "|" _
-            & $g_iHoverSample & "|" & $g_sSmpPlaying & "|" _
+            & $g_iHoverSample & "|" & $g_iSamplesScroll & "|" & $g_bSamplesMore & "|" _
+            & $g_iHoverLane & "|" & $g_sLastPlayed & "|" _
             & $g_bSrcOpen & "|" & $g_bSrcPlaying & "|" _
             & Round(Player_Position(), 2) ; tête de lecture : 50 redraws/s max
 EndFunc
@@ -519,10 +524,15 @@ Func Ui_DrawTimelineTracks()
     Ui_DrawTrackSeparator($g_aRectTimeline)
 
     ; Lignes de pistes + labels
-    Local $iLane, $iY
+    Local $iLane, $iY, $bPlayed
     For $iLane = 0 To $iVisible - 1
         $iY = $aB[1] + $iLane * $iRowH
         If $iY + $iRowH > $aB[1] + $aB[3] Then ExitLoop
+        ; Piste du dernier sample joué : fond vert sur toute la ligne
+        $bPlayed = ($g_aTlLaneKind[$iLane] = 0 And $g_sLastPlayed <> "" _
+                And $g_aTlLaneName[$iLane] = $g_sLastPlayed)
+        If $bPlayed Then _GDIPlus_GraphicsFillRect($g_hGfx, $g_aRectTimeline[0] + 4, $iY, _
+                $g_aRectTimeline[2] - 8, $iRowH, $g_hBrushPlayedBg)
         _GDIPlus_GraphicsDrawLine($g_hGfx, $aB[0] - $TL_LABEL_W + 8, $iY + $iRowH, _
                 $aB[0] + $aB[2], $iY + $iRowH, $g_hPenBorder)
         ; pastille couleur + nom de piste
@@ -534,7 +544,9 @@ Func Ui_DrawTimelineTracks()
             _GDIPlus_GraphicsFillRect($g_hGfx, $aB[0] - $TL_LABEL_W + 10, $iY + Int($iRowH / 2) - 4, 8, 8, _
                     $g_aBrushPalette[$g_aTlLaneColor[$iLane]])
             Ui_DrawText(Ui_EllipsizeEnd($g_aTlLaneName[$iLane], 20), $g_hFontSmall, _
-                    $aB[0] - $TL_LABEL_W + 24, $iY, $TL_LABEL_W - 30, $iRowH, $g_hBrushText, $g_hFmtLeft)
+                    $aB[0] - $TL_LABEL_W + 24, $iY, $TL_LABEL_W - 30, $iRowH, _
+                    $bPlayed ? $g_hBrushOk : (($iLane = $g_iHoverLane) ? $g_hBrushAccent : $g_hBrushText), _
+                    $g_hFmtLeft)
         EndIf
     Next
     If $iVisible < $g_iTlLanes Then
@@ -584,13 +596,47 @@ Func Ui_DrawTimelineTracks()
     Ui_DrawPlayhead($aB, $fViewStart, $fViewDur)
     Ui_ResetClip()
 
-    ; Tooltip du bloc survolé : hors clip, dessiné en dernier par-dessus tout
-    If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks Then Ui_DrawBlockTooltip()
+    ; Infobulles : hors clip, dessinées en dernier par-dessus tout
+    If $g_iHoverBlock >= 0 And $g_iHoverBlock < $g_iTlBlocks Then
+        Ui_DrawBlockTooltip()
+    ElseIf $g_iHoverLane >= 0 And $g_iHoverLane < $g_iTlLanes Then
+        ; Libellé de piste tronqué : nom complet en infobulle
+        Ui_DrawNameTooltip($g_aTlLaneName[$g_iHoverLane], _
+                $g_aTlLaneKind[$g_iHoverLane] = 1)
+    EndIf
+EndFunc
+
+; Infobulle d'une seule ligne, dimensionnée sur le texte.
+Func Ui_DrawNameTooltip($sText, $bUnknown)
+    Local $iW = Ui_MeasureTextW($sText, $g_hFontSmall) + 20
+    If $iW < 80 Then $iW = 80
+    Local $iH = 24
+    Local $iX = $g_iHoverX + 16
+    Local $iY = $g_iHoverY + 16
+    If $iX + $iW > $g_iRenderW - 4 Then $iX = $g_iRenderW - 4 - $iW
+    If $iX < 4 Then $iX = 4
+    If $iY + $iH > $g_iRenderH - 4 Then $iY = $g_iHoverY - $iH - 8
+    _GDIPlus_GraphicsFillRect($g_hGfx, $iX, $iY, $iW, $iH, $g_hBrushTooltipBg)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $iX, $iY, $iW - 1, $iH - 1, $g_hPenAccent)
+    Ui_DrawText($sText, $g_hFontSmall, $iX + 10, $iY, $iW - 20, $iH, _
+            $bUnknown ? $g_hBrushError : $g_hBrushText, $g_hFmtLeft)
+EndFunc
+
+; Largeur d'un texte en pixels (mesure GDI+, uniquement hors chemin chaud).
+Func Ui_MeasureTextW($sText, $hFont)
+    Local $tLayout = _GDIPlus_RectFCreate(0, 0, 2000, 40)
+    Local $aInfo = _GDIPlus_GraphicsMeasureString($g_hGfx, $sText, $hFont, $tLayout, $g_hFmtLeft)
+    If @error Then Return 8 * StringLen($sText)
+    Return Int(DllStructGetData($aInfo[0], "Width")) + 2
 EndFunc
 
 Func Ui_DrawBlockTooltip()
     Local $i = $g_iHoverBlock
-    Local $iW = 240, $iH = 88
+    ; Largeur ajustée au nom : jamais tronqué, même très long
+    Local $iW = Ui_MeasureTextW($g_aTlBlocks[$i][6], $g_hFontNormal) + 24
+    If $iW < 240 Then $iW = 240
+    If $iW > $g_iRenderW - 40 Then $iW = $g_iRenderW - 40
+    Local $iH = 88
     Local $iX = $g_iHoverX + 16
     Local $iY = $g_iHoverY + 16
     If $iX + $iW > $g_iRenderW - 4 Then $iX = $g_iHoverX - $iW - 8
@@ -632,47 +678,64 @@ Func Ui_DrawSamplesZone()
     Ui_DrawText(Ui_EllipsizePath($g_sSamplesDir, 110), $g_hFontSmall, _
             $aR[0] + 14, $aR[1] + 26, $aR[2] - 28, 16, $g_hBrushMuted, $g_hFmtLeft)
 
-    ; Grille de noms (colonnes puis lignes) — géométrie partagée avec le hit-test
-    Local $iInnerX = $g_aRectSamplesList[0]
-    Local $iInnerY = $g_aRectSamplesList[1]
+    ; Grille de noms (lignes puis colonnes) — géométrie partagée avec le
+    ; hit-test, défilement vertical borné à la liste.
+    Local $aL = $g_aRectSamplesList
     Local $iCols, $iRows, $iColW, $iRowH
     Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH)
-    Local $iShown = Ui_SamplesShownCount()
-    Local $i, $iCol, $iRow, $hBrush
-    For $i = 0 To $iShown - 1
-        $iCol = Int($i / $iRows)
-        $iRow = Mod($i, $iRows)
+    Layout_ClampSamplesScroll($iCount)
+    Local $iFirst = $g_iSamplesScroll * $iCols
+    Local $iLast = $iFirst + $iCols * $iRows - 1
+    If $iLast > $iCount - 1 Then $iLast = $iCount - 1
+
+    Ui_SetClip($aL)
+    Local $i, $iCol, $iRow, $iCellX, $iCellY, $hBrush, $sName
+    For $i = $iFirst To $iLast
+        $iCol = Mod($i - $iFirst, $iCols)
+        $iRow = Int(($i - $iFirst) / $iCols)
+        $iCellX = $aL[0] + $iCol * $iColW
+        $iCellY = $aL[1] + $iRow * $iRowH
+        $sName = $g_aSampleFiles[$i]
         $hBrush = $g_hBrushText
         If $i = $g_iHoverSample Then
             ; survol : fond discret, le clic déclenche la prévisualisation
-            _GDIPlus_GraphicsFillRect($g_hGfx, $iInnerX + $iCol * $iColW - 2, _
-                    $iInnerY + $iRow * $iRowH, $iColW - 6, $iRowH, $g_hBrushButtonHover)
+            _GDIPlus_GraphicsFillRect($g_hGfx, $iCellX - 2, $iCellY, $iColW - 6, $iRowH, _
+                    $g_hBrushButtonHover)
             $hBrush = $g_hBrushAccent
         EndIf
-        If $g_sSmpPlaying <> "" And $g_sSmpPlaying = $g_sSamplesDir & "\" & $g_aSampleFiles[$i] Then _
-                $hBrush = $g_hBrushOk
-        Ui_DrawText("• " & Ui_EllipsizeEnd($g_aSampleFiles[$i], 32), $g_hFontSmall, _
-                $iInnerX + $iCol * $iColW, $iInnerY + $iRow * $iRowH, $iColW - 10, $iRowH, _
-                $hBrush, $g_hFmtLeft)
+        ; Dernier sample joué : reste en vert jusqu'à la lecture du suivant
+        If $sName = $g_sLastPlayed Then
+            _GDIPlus_GraphicsFillRect($g_hGfx, $iCellX - 2, $iCellY, $iColW - 6, $iRowH, _
+                    $g_hBrushPlayedBg)
+            $hBrush = $g_hBrushOk
+        EndIf
+        Ui_DrawText("• " & Ui_EllipsizeEnd($sName, 32), $g_hFontSmall, _
+                $iCellX, $iCellY, $iColW - 10, $iRowH, $hBrush, $g_hFmtLeft)
     Next
-    If $iCount > $iShown Then
-        $iCol = Int($iShown / $iRows)
-        $iRow = Mod($iShown, $iRows)
-        Ui_DrawText("+ " & ($iCount - $iShown) & " autres…", $g_hFontSmall, _
-                $iInnerX + $iCol * $iColW, $iInnerY + $iRow * $iRowH, $iColW - 10, $iRowH, _
-                $g_hBrushMuted, $g_hFmtLeft)
-    EndIf
+    Ui_ResetClip()
+
+    Ui_DrawSamplesScrollbar($aL, $iCount, $iCols, $iRows)
 EndFunc
 
-; Nombre de samples réellement affichés dans la grille (le reste est résumé).
-Func Ui_SamplesShownCount()
-    Local $iCount = UBound($g_aSampleFiles)
-    If $iCount = 0 Then Return 0
-    Local $iCols, $iRows, $iColW, $iRowH
-    Layout_SampleGrid($iCols, $iRows, $iColW, $iRowH)
-    Local $iMax = $iCols * $iRows
-    If $iCount > $iMax Then Return $iMax - 1 ; une case réservée à « + N autres »
-    Return $iCount
+; Barre de défilement de la bibliothèque + rappel du nombre restant.
+Func Ui_DrawSamplesScrollbar($aL, $iCount, $iCols, $iRows)
+    Local $iMaxScroll = Layout_SampleMaxScroll($iCount)
+    If $iMaxScroll <= 0 Then Return
+    Local $iBarX = $aL[0] + $aL[2] - $LAYOUT_SCROLLBAR_W
+    _GDIPlus_GraphicsFillRect($g_hGfx, $iBarX, $aL[1], $LAYOUT_SCROLLBAR_W, $aL[3], $g_hBrushWaveBg)
+    Local $iTotalRows = $iMaxScroll + $iRows
+    Local $iThumbH = Int($aL[3] * $iRows / $iTotalRows)
+    If $iThumbH < 16 Then $iThumbH = 16
+    Local $iThumbY = $aL[1] + Int(($aL[3] - $iThumbH) * $g_iSamplesScroll / $iMaxScroll)
+    _GDIPlus_GraphicsFillRect($g_hGfx, $iBarX + 1, $iThumbY, $LAYOUT_SCROLLBAR_W - 2, $iThumbH, _
+            $g_hBrushScrollThumb)
+    ; Reste à afficher : ligne cliquable qui fait défiler d'une page
+    Local $iRemaining = $iCount - ($g_iSamplesScroll + $iRows) * $iCols
+    If $iRemaining > 0 Then
+        Ui_DrawText("+ " & $iRemaining & " autres…", $g_hFontSmall, _
+                $aL[0], $aL[1] - 20, $aL[2] - $LAYOUT_SCROLLBAR_W - 4, 18, _
+                $g_bSamplesMore ? $g_hBrushAccent : $g_hBrushMuted, $g_hFmtRight)
+    EndIf
 EndFunc
 
 Func Ui_DrawStatusBar()
@@ -774,6 +837,10 @@ Func Ui_Dispose()
     If $g_hPenPlayhead <> 0 Then _GDIPlus_PenDispose($g_hPenPlayhead)
     If $g_hBrushPlayhead <> 0 Then _GDIPlus_BrushDispose($g_hBrushPlayhead)
     If $g_hBrushSplitter <> 0 Then _GDIPlus_BrushDispose($g_hBrushSplitter)
+    If $g_hBrushPlayedBg <> 0 Then _GDIPlus_BrushDispose($g_hBrushPlayedBg)
+    If $g_hBrushScrollThumb <> 0 Then _GDIPlus_BrushDispose($g_hBrushScrollThumb)
+    $g_hBrushPlayedBg = 0
+    $g_hBrushScrollThumb = 0
     $g_hBrushUnknownFill = 0
     $g_hBrushTooltipBg = 0
     $g_hPenBlockHover = 0

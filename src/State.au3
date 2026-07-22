@@ -50,6 +50,14 @@ Global $g_bCursorSizeNS = False ; curseur souris actuellement en double flèche
 
 ; Survol bibliothèque (prévisualisation au clic)
 Global $g_iHoverSample = -1
+Global $g_iSamplesScroll = 0    ; première ligne affichée dans la grille
+Global $g_bSamplesMore = False  ; ligne « + N autres… » survolée
+
+; Survol d'un libellé de piste dans la timeline (nom complet en infobulle)
+Global $g_iHoverLane = -1
+
+; Dernier sample joué : reste mis en évidence jusqu'au suivant
+Global $g_sLastPlayed = ""
 
 ; Analyse (phase 5)
 Global $g_bAnalyzing = False
