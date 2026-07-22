@@ -241,7 +241,33 @@ Func Ui_DrawWaveform()
     Local $iClipBottom = $iWaveY + $iWaveH - 2
     Local $fBucketDur = Waveform_GetBucketDur()
 
-    If $fBucketDur > 0 And $fSecPerPx < $fBucketDur Then
+    Local $fSamplesPerPx = $fSecPerPx * $g_iWaveRate
+
+    If $g_tWaveShorts <> 0 And $fSamplesPerPx < 64 Then
+        ; Zoom profond : polyligne sur les échantillons PCM réels (la vraie
+        ; forme d'onde), 2 points par pixel max, antialiasing temporaire.
+        Local $iStep = Int($fSamplesPerPx / 2)
+        If $iStep < 1 Then $iStep = 1
+        Local $iS0 = Int($g_fViewStart * $g_iWaveRate)
+        Local $iS1 = Int(($g_fViewStart + $g_fViewDur) * $g_iWaveRate) + 1
+        If $iS0 < 0 Then $iS0 = 0
+        If $iS1 > $g_iWaveSampleCount - 1 Then $iS1 = $g_iWaveSampleCount - 1
+        _GDIPlus_GraphicsSetSmoothingMode($g_hGfx, 2)
+        Local $iS, $fSX, $iSY, $v
+        Local $fPrevSX = 0, $iPrevSY = 0, $bPrevS = False
+        For $iS = $iS0 To $iS1 Step $iStep
+            $v = DllStructGetData($g_tWaveShorts, 1, $iS + 1)
+            $fSX = $aR[0] + ($iS / $g_iWaveRate - $g_fViewStart) / $fSecPerPx
+            $iSY = Int($fMid - $v * $fScale)
+            If $iSY < $iClipTop Then $iSY = $iClipTop
+            If $iSY > $iClipBottom Then $iSY = $iClipBottom
+            If $bPrevS Then _GDIPlus_GraphicsDrawLine($g_hGfx, $fPrevSX, $iPrevSY, $fSX, $iSY, $g_hPenWave)
+            $fPrevSX = $fSX
+            $iPrevSY = $iSY
+            $bPrevS = True
+        Next
+        _GDIPlus_GraphicsSetSmoothingMode($g_hGfx, 0) ; restaurer (doc rendu §3)
+    ElseIf $fBucketDur > 0 And $fSecPerPx < $fBucketDur Then
         ; Zoom fort : moins d'un bucket par colonne — tracé en polylignes
         ; fines (enveloppes min et max reliées entre buckets), jamais de
         ; colonnes pleines. Antialiasing temporaire (doc rendu §3).

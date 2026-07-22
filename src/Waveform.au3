@@ -126,9 +126,8 @@ Func Waveform_Step()
         $g_bWaveComputing = False
         $g_bWaveReady = True
         $g_iWaveVersion += 1
-        ; Libérer le PCM : seuls les pics servent à l'affichage
-        $g_tWaveShorts = 0
-        $g_tWaveBytes = 0
+        ; Le PCM est conservé : il sert au tracé échantillon par échantillon
+        ; en zoom profond (~1 Mo par 12 s de source, libéré au Reset)
     EndIf
 EndFunc
 
