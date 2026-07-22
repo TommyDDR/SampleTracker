@@ -118,8 +118,12 @@ EndFunc
 Func Ui_BuildCacheKey()
     Local $sStatus = ""
     If Ui_IsStatusVisible() Then $sStatus = $g_iStatusKind & ":" & $g_sStatusText
+    ; Phase des points animés pendant l'extraction (change ~2x/s)
+    Local $iExtractPhase = -1
+    If $g_bExtracting Then $iExtractPhase = Mod(Int(TimerDiff($g_hExtractTimer) / 400), 4)
     Return $g_iRenderW & "|" & $g_iRenderH & "|" & $g_iHoverButton & "|" _
-            & $g_sSourcePath & "|" & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
+            & $g_sSourcePath & "|" & $g_sSourceWav & "|" & $g_fSourceDuration & "|" & $iExtractPhase & "|" _
+            & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
             & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus
 EndFunc
 
@@ -184,8 +188,19 @@ Func Ui_DrawSourceZone()
     EndIf
     Ui_DrawText(Action_FileName($g_sSourcePath), $g_hFontNormal, _
             $aR[0] + 14, $aR[1] + 24, $aR[2] - 28, 22, $g_hBrushAccent, $g_hFmtLeft)
-    Ui_DrawText(Ui_EllipsizePath($g_sSourcePath, 110), $g_hFontSmall, _
-            $aR[0] + 14, $aR[1] + 46, $aR[2] - 28, 16, $g_hBrushMuted, $g_hFmtLeft)
+    ; Ligne d'état : extraction en cours / infos PCM / chemin
+    Local $sInfo = Ui_EllipsizePath($g_sSourcePath, 110)
+    Local $hInfoBrush = $g_hBrushMuted
+    If $g_bExtracting Then
+        Local $iDots = Mod(Int(TimerDiff($g_hExtractTimer) / 400), 4)
+        $sInfo = "Extraction audio en cours" & StringLeft("...", $iDots)
+        $hInfoBrush = $g_hBrushAccent
+    ElseIf $g_sSourceWav <> "" Then
+        $sInfo = StringFormat("Durée : %.2f s — PCM %.1f kHz mono 16 bits — %s", _
+                $g_fSourceDuration, $g_iSourceRate / 1000, Ui_EllipsizePath($g_sSourcePath, 70))
+    EndIf
+    Ui_DrawText($sInfo, $g_hFontSmall, _
+            $aR[0] + 14, $aR[1] + 46, $aR[2] - 28, 16, $hInfoBrush, $g_hFmtLeft)
     ; Emplacement waveform (phase 3)
     Local $iWaveY = $aR[1] + 68
     Local $iWaveH = $aR[1] + $aR[3] - 12 - $iWaveY

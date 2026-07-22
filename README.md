@@ -32,11 +32,23 @@ registre de disposers GDI+, profiler intégré.
 
 ## Lancement
 
-Prérequis : AutoIt 3.3.16+.
+Prérequis :
+- AutoIt 3.3.16+
+- ffmpeg : `bin\ffmpeg.exe` (non versionné — télécharger un build statique,
+  ex. gyan.dev "essentials") ou disponible dans le PATH
 
 ```
 AutoIt3.exe SampleTracker.au3
 ```
+
+## Tests
+
+```
+AutoIt3.exe tests\Phase2Test.au3
+```
+
+Exit 0 = PASS, 1 = FAIL, 2 = SKIP (ffmpeg absent). Génère une tonalité MP4,
+extrait le PCM, vérifie durée et format via l'en-tête WAV.
 
 ## Utilisation (phase 1)
 
