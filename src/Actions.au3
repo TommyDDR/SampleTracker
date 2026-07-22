@@ -43,12 +43,12 @@ Func Action_LoadSamplesDir($sDir)
         Ui_SetStatus("Pas un dossier : " & $sDir, 2)
         Return
     EndIf
-    Local $aFiles = _FileListToArray($sDir, "*.mp3;*.wav", $FLTA_FILES)
+    ; Scan récursif, tri intégré, chemins relatifs au dossier racine
+    Local $aFiles = _FileListToArrayRec($sDir, "*.mp3;*.wav", $FLTAR_FILES, $FLTAR_RECUR, $FLTAR_SORT, $FLTAR_RELPATH)
     If @error Or $aFiles[0] = 0 Then
         Ui_SetStatus("Aucun sample MP3/WAV trouvé dans : " & $sDir, 2)
         Return
     EndIf
-    _ArraySort($aFiles, 0, 1)
     Local $aNames[$aFiles[0]]
     Local $i
     For $i = 1 To $aFiles[0]
