@@ -17,6 +17,7 @@ Global $g_bSrcPaused = False
 Global $g_fPlayCursor = 0       ; position du curseur en secondes (départ de lecture)
 Global $g_fPlayPos = 0          ; position mémoïsée, rafraîchie par Player_Poll
 Global $g_sSmpPlaying = ""      ; sample en prévisualisation ("" si aucun)
+Global $g_bScrubbing = False    ; glisser en cours : position pilotée par l'UI
 
 ; Envoie une commande MCI. Retourne la chaîne de retour ("" si erreur), @error <> 0 si échec.
 Func Player_Mci($sCmd)
@@ -105,6 +106,27 @@ Func Player_SetCursor($fSeconds)
     EndIf
 EndFunc
 
+; --- Scrub (glisser continu de la tête de lecture) -------------------------
+
+; Pendant le glisser, la position n'est que visuelle : aucune commande MCI
+; (chère, et un « play from » par frame hacherait le son). La position réelle
+; n'est appliquée qu'au relâchement.
+Func Player_ScrubBegin()
+    $g_bScrubbing = True
+EndFunc
+
+Func Player_ScrubTo($fSeconds)
+    If $fSeconds < 0 Then $fSeconds = 0
+    $g_fPlayCursor = $fSeconds
+    $g_fPlayPos = $fSeconds
+EndFunc
+
+Func Player_ScrubEnd()
+    If Not $g_bScrubbing Then Return
+    $g_bScrubbing = False
+    Player_SetCursor($g_fPlayCursor)
+EndFunc
+
 ; Position courante en secondes (valeur mémoïsée : le rendu ne doit pas
 ; interroger MCI par frame — cf. pratiques de rendu §7.4).
 Func Player_Position()
@@ -115,7 +137,8 @@ EndFunc
 ; Rafraîchit la position et détecte la fin de lecture (à appeler chaque
 ; frame). Coût nul si aucune lecture en cours.
 Func Player_Poll()
-    If Not $g_bSrcOpen Or Not $g_bSrcPlaying Then Return
+    ; Pendant un scrub, la position vient de la souris : ne pas l'écraser.
+    If Not $g_bSrcOpen Or Not $g_bSrcPlaying Or $g_bScrubbing Then Return
     Local $sMode = Player_Mci("status " & $PLAYER_ALIAS_SRC & " mode")
     If $sMode <> "playing" Then
         $g_bSrcPlaying = False

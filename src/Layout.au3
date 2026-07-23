@@ -41,6 +41,9 @@ Global $g_aRectButtons[5][4]
 Global $g_aRectTopBar[4]
 Global $g_aRectSource[4]
 Global $g_aRectWave[4]      ; bande waveform (règle + pics) dans la zone source
+Global $g_aRectThreshold[4] ; réglette du seuil de détection (colonne de gauche)
+Global Const $LAYOUT_THRESH_H = 10
+Global Const $LAYOUT_THRESH_GRAB = 8 ; marge de saisie autour de la piste
 Global $g_aRectTimeline[4]
 Global $g_aRectTlBlocks[4]  ; zone des blocs (timeline moins colonne labels)
 ; Largeur de la colonne de libellés, commune à la waveform et à la timeline :
@@ -119,6 +122,10 @@ Func Layout_Recompute($iW, $iH)
     Local $iSourceY = $LAYOUT_TOPBAR_H + $m
     _Layout_SetRect($g_aRectSource, $m, $iSourceY, $iW - 2 * $m, $g_iLayoutSourceH)
     _Layout_SetRect($g_aRectWave, $iTrackX, $iSourceY + 30, $iTrackW, $g_iLayoutSourceH - 30 - 12)
+    ; Réglette du seuil : ancrée en bas de la colonne de libellés, elle reste
+    ; sous les informations de la source quelle que soit la hauteur de zone.
+    _Layout_SetRect($g_aRectThreshold, $m + 14, $iSourceY + $g_iLayoutSourceH - 22, _
+            $TL_LABEL_W - 30, $LAYOUT_THRESH_H)
 
     Local $iTimelineY = $iSourceY + $g_iLayoutSourceH + $m
     Local $iTimelineH = $iSamplesY - $m - $iTimelineY
@@ -214,6 +221,32 @@ Func Layout_FitTimelineToLanes($iLanes, $iRowH)
     If $iRest < $LAYOUT_SAMPLES_MIN_H Then Return ; pas assez de place : on ne touche à rien
     $g_iLayoutSamplesH = $iRest
     Layout_Recompute($g_iLayoutW, $g_iLayoutH)
+EndFunc
+
+; --- Réglette du seuil de détection ---------------------------------------
+
+; Zone de saisie élargie : la piste ne fait que 10 px de haut.
+Func Layout_HitThreshold($iX, $iY)
+    Return $iX >= $g_aRectThreshold[0] - $LAYOUT_THRESH_GRAB _
+            And $iX <= $g_aRectThreshold[0] + $g_aRectThreshold[2] + $LAYOUT_THRESH_GRAB _
+            And $iY >= $g_aRectThreshold[1] - $LAYOUT_THRESH_GRAB _
+            And $iY <= $g_aRectThreshold[1] + $g_aRectThreshold[3] + $LAYOUT_THRESH_GRAB
+EndFunc
+
+; Valeur du seuil correspondant à l'abscisse souris (bornage côté Engine).
+Func Layout_ThresholdFromX($iX)
+    If $g_aRectThreshold[2] < 1 Then Return $ENGINE_THRESHOLD_MIN
+    Local $fRatio = ($iX - $g_aRectThreshold[0]) / $g_aRectThreshold[2]
+    Return $ENGINE_THRESHOLD_MIN + $fRatio * ($ENGINE_THRESHOLD_MAX - $ENGINE_THRESHOLD_MIN)
+EndFunc
+
+; Abscisse du curseur pour la valeur courante.
+Func Layout_ThresholdThumbX()
+    Local $fRatio = ($g_fThreshold - $ENGINE_THRESHOLD_MIN) _
+            / ($ENGINE_THRESHOLD_MAX - $ENGINE_THRESHOLD_MIN)
+    If $fRatio < 0 Then $fRatio = 0
+    If $fRatio > 1 Then $fRatio = 1
+    Return $g_aRectThreshold[0] + Int($fRatio * $g_aRectThreshold[2])
 EndFunc
 
 ; Poignée de redimensionnement sous (x, y) : bande centrée sur l'espace

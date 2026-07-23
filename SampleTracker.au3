@@ -20,13 +20,13 @@
 #include "src\State.au3"
 #include "src\Perf.au3"
 #include "src\Render.au3"
+#include "src\Engine.au3" ; avant Layout/Config : seuil de détection partagé
 #include "src\Layout.au3"
 #include "src\Config.au3"
 #include "src\Player.au3"
 #include "src\Ffmpeg.au3"
 #include "src\Wav.au3"
 #include "src\Waveform.au3"
-#include "src\Engine.au3"
 #include "src\Timeline.au3"
 #include "src\UiDraw.au3"
 #include "src\Actions.au3"
@@ -35,7 +35,7 @@
 Opt("MustDeclareVars", 1)
 Opt("GUIOnEventMode", 0)
 
-Global Const $APP_FRAME_MS = 1000 / 60
+Global Const $APP_FRAME_MS = 1000 / 300
 Global $g_hNtdll = DllOpen("ntdll.dll")
 
 Main()
@@ -92,6 +92,7 @@ Func App_ShotMode($sPath, $bAnalyze)
             App_UpdateHoverAt(Number($CmdLine[$i + 1]), Number($CmdLine[$i + 2]))
         EndIf
     Next
+    Ui_InvalidateAll()
     Ui_Redraw() ; forcer un rendu complet, cache ignoré
     Render_Present()
     Render_SaveBackbuffer($sPath)
@@ -171,6 +172,8 @@ Func App_HandleEvents()
                 App_UpdateHover()
             Case $GUI_EVENT_PRIMARYDOWN
                 App_OnPrimaryDown()
+            Case $GUI_EVENT_SECONDARYDOWN
+                App_OnSecondaryDown()
         EndSwitch
     WEnd
 EndFunc
@@ -182,7 +185,7 @@ Func App_OnResize()
     If $aSize[0] = $g_iRenderW And $aSize[1] = $g_iRenderH Then Return
     Render_CreateTargets($aSize[0], $aSize[1])
     Layout_Recompute($aSize[0], $aSize[1])
-    $g_sUiCacheKey = "" ; invalider le cache UI (backbuffer neuf)
+    Ui_InvalidateAll() ; backbuffer neuf : caches UI invalidés
 EndFunc
 
 Func App_UpdateHover()
@@ -206,6 +209,8 @@ Func App_UpdateHoverAt($iX, $iY)
     $g_iHoverBlock = $iBlock
     $g_iHoverX = $iX
     $g_iHoverY = $iY
+    ; Réglette du seuil de détection
+    $g_bHoverThreshold = $g_bThresholdDrag Or Layout_HitThreshold($iX, $iY)
     ; Sample survolé dans la bibliothèque
     $g_iHoverSample = Layout_HitSample($iX, $iY, UBound($g_aSampleFiles))
     $g_bSamplesMore = App_HitSamplesMore($iX, $iY)
@@ -234,7 +239,7 @@ EndFunc
 Func App_SetCursor($iCursor)
     If $iCursor = $g_iCursorCurrent Then Return
     $g_iCursorCurrent = $iCursor
-    GUISetCursor($iCursor, 1, $g_hGui)
+    GUISetCursor($iCursor, 0, $g_hGui)
 EndFunc
 
 ; Choisit le curseur selon la zone survolée : poignée de redimensionnement,
@@ -246,7 +251,7 @@ Func App_UpdateCursorForPoint($iX, $iY)
         Return
     EndIf
     Local $bClickable = ($g_iHoverButton <> -1) _
-            Or ($g_iHoverSample >= 0) Or $g_bSamplesMore _
+            Or ($g_iHoverSample >= 0) Or $g_bSamplesMore Or $g_bHoverThreshold _
             Or ($g_iHoverLane >= 0) _
             Or ($g_bWaveReady And Layout_PointInRect($iX, $iY, $g_aRectWave)) _
             Or ($g_iTlBlocks > 0 And Layout_PointInRect($iX, $iY, $g_aRectTlBlocks))
@@ -302,9 +307,8 @@ Func App_ProcessWheel()
             Waveform_ZoomY(1.25 ^ ($iDeltaCtrl / 120))
 EndFunc
 
-; Glisser en cours : redimensionnement d'une zone, ou pan de la vue.
-; Un glisser de moins de 5 px est traité comme un clic simple au relâchement :
-; il place la tête de lecture au point cliqué.
+; Glisser en cours : redimensionnement d'une zone, scrub (bouton gauche) ou
+; pan de la vue (bouton droit).
 Func App_UpdateDrag()
     ; Redimensionnement des zones par poignée
     If $g_iDragSplitter <> $SPLIT_NONE Then
@@ -318,18 +322,69 @@ Func App_UpdateDrag()
         Return
     EndIf
 
+    Local $aInfo
+    ; Réglette du seuil
+    If $g_bThresholdDrag Then
+        $aInfo = GUIGetCursorInfo($g_hGui)
+        If @error Then Return
+        If $aInfo[2] = 0 Then
+            $g_bThresholdDrag = False
+            Return
+        EndIf
+        Engine_SetThreshold(Layout_ThresholdFromX($aInfo[0]))
+        Return
+    EndIf
+
+    ; Scrub : la tête de lecture suit la souris tant que le bouton est tenu
+    If $g_bScrubDrag Then
+        $aInfo = GUIGetCursorInfo($g_hGui)
+        If @error Then Return
+        If $aInfo[2] = 0 Then
+            $g_bScrubDrag = False
+            Player_ScrubEnd() ; seule commande MCI du glisser
+            Return
+        EndIf
+        App_ScrubToX($aInfo[0])
+        Return
+    EndIf
+
     If Not $g_bWaveDragging Then Return
-    Local $aInfo = GUIGetCursorInfo($g_hGui)
+    $aInfo = GUIGetCursorInfo($g_hGui)
     If @error Then Return
-    If $aInfo[2] = 0 Then
+    If $aInfo[3] = 0 Then ; bouton droit relâché
         $g_bWaveDragging = False
-        ; Clic sans déplacement : positionner la tête de lecture
-        If Abs($aInfo[0] - $g_iDragStartX) < 5 And $g_bSrcOpen Then _
-                Player_SetCursor($g_fViewStart + ($aInfo[0] - $g_iDragRefX) * $g_fViewDur / $g_iDragRefW)
         Return
     EndIf
     Local $fNewStart = $g_fDragStartView - ($aInfo[0] - $g_iDragStartX) * $g_fViewDur / $g_iDragRefW
     Waveform_SetView($fNewStart, $g_fViewDur)
+EndFunc
+
+; Place la tête de lecture sous l'abscisse souris, dans l'échelle du rect où
+; le glisser a démarré (waveform ou blocs timeline : même vue temporelle).
+Func App_ScrubToX($iX)
+    Local $fPos = $g_fViewStart + ($iX - $g_iScrubRefX) * $g_fViewDur / $g_iScrubRefW
+    If $fPos < 0 Then $fPos = 0
+    If $g_fSourceDuration > 0 And $fPos > $g_fSourceDuration Then $fPos = $g_fSourceDuration
+    Player_ScrubTo($fPos)
+EndFunc
+
+; Bouton droit sur la waveform ou les blocs timeline : pan de la vue.
+Func App_OnSecondaryDown()
+    If Not $g_bWaveReady Then Return
+    Local $aInfo = GUIGetCursorInfo($g_hGui)
+    If @error Then Return
+    Local $aRect = 0
+    If Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
+        $aRect = $g_aRectWave
+    ElseIf $g_iTlBlocks > 0 And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectTlBlocks) Then
+        $aRect = $g_aRectTlBlocks
+    Else
+        Return
+    EndIf
+    $g_bWaveDragging = True
+    $g_iDragStartX = $aInfo[0]
+    $g_fDragStartView = $g_fViewStart
+    $g_iDragRefW = $aRect[2]
 EndFunc
 
 Func App_OnPrimaryDown()
@@ -340,6 +395,13 @@ Func App_OnPrimaryDown()
     Local $iSplit = Layout_HitSplitter($aInfo[0], $aInfo[1])
     If $iSplit <> $SPLIT_NONE Then
         $g_iDragSplitter = $iSplit
+        Return
+    EndIf
+
+    ; Réglette du seuil : saisie immédiate, puis suivi de la souris
+    If Layout_HitThreshold($aInfo[0], $aInfo[1]) Then
+        $g_bThresholdDrag = True
+        Engine_SetThreshold(Layout_ThresholdFromX($aInfo[0]))
         Return
     EndIf
 
@@ -359,7 +421,7 @@ Func App_OnPrimaryDown()
         Return
     EndIf
 
-    ; Waveform / blocs timeline : double-clic = vue complète, sinon début de pan
+    ; Waveform / blocs timeline : double-clic = vue complète, sinon début de scrub
     Local $aRect = 0
     If $g_bWaveReady And Layout_PointInRect($aInfo[0], $aInfo[1], $g_aRectWave) Then
         $aRect = $g_aRectWave
@@ -385,11 +447,12 @@ Func App_OnPrimaryDown()
         $g_hLastClickTimer = TimerInit()
         $g_iLastClickX = $aInfo[0]
         $g_iLastClickY = $aInfo[1]
-        $g_bWaveDragging = True
-        $g_iDragStartX = $aInfo[0]
-        $g_fDragStartView = $g_fViewStart
-        $g_iDragRefX = $aRect[0]
-        $g_iDragRefW = $aRect[2]
+        ; Scrub : la tête de lecture saute au point cliqué puis suit la souris
+        $g_bScrubDrag = True
+        $g_iScrubRefX = $aRect[0]
+        $g_iScrubRefW = $aRect[2]
+        Player_ScrubBegin()
+        App_ScrubToX($aInfo[0])
         Return
     EndIf
     Switch Layout_HitButton($aInfo[0], $aInfo[1])

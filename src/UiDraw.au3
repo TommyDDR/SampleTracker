@@ -28,6 +28,10 @@ Global Const $UI_COLOR_WAVE_LINE = 0xFF3A3A46
 Global Const $UI_STATUS_TIMEOUT_MS = 8000
 Global Const $UI_GDIP_NOWRAP = 0x1000
 
+; Débord des bordures bas/droite des blocs et des cases de timeline : le tracé
+; GDI+ tombe 2 px trop haut/trop à gauche par rapport au remplissage.
+Global Const $UI_BORDER_GROW = 2
+
 ; Ressources GDI+ partagées (créées au démarrage, jamais par frame — doc §8)
 Global $g_hFamilyUi = 0
 Global $g_hFontTitle = 0
@@ -70,7 +74,31 @@ Global $g_hBrushSplitter = 0
 Global $g_hBrushPlayedBg = 0    ; fond du dernier élément joué
 Global $g_hBrushScrollThumb = 0
 
+; --- Caches de zones (un bitmap PARGB par bloc, doc §7.3) ------------------
+Global Const $UI_ZONE_TOPBAR = 0
+Global Const $UI_ZONE_SOURCE = 1
+Global Const $UI_ZONE_TIMELINE = 2
+Global Const $UI_ZONE_SAMPLES = 3
+Global Const $UI_ZONE_COUNT = 4
+; Marge du cache : les bordures débordent de 2 px en bas et à droite
+Global Const $UI_ZONE_PAD = 4
+
+Global $g_aZoneBmp[$UI_ZONE_COUNT]
+Global $g_aZoneGfx[$UI_ZONE_COUNT]
+Global $g_aZoneW[$UI_ZONE_COUNT]
+Global $g_aZoneH[$UI_ZONE_COUNT]
+Global $g_aZoneKey[$UI_ZONE_COUNT]
+
 Func Ui_Startup()
+    Local $iZ
+    For $iZ = 0 To $UI_ZONE_COUNT - 1
+        $g_aZoneBmp[$iZ] = 0
+        $g_aZoneGfx[$iZ] = 0
+        $g_aZoneW[$iZ] = 0
+        $g_aZoneH[$iZ] = 0
+        $g_aZoneKey[$iZ] = ""
+    Next
+
     $g_hFamilyUi = _GDIPlus_FontFamilyCreate("Segoe UI")
     If @error Or $g_hFamilyUi = 0 Then $g_hFamilyUi = _GDIPlus_FontFamilyCreate("Arial")
 
@@ -150,28 +178,55 @@ Func Ui_IsStatusVisible()
     Return TimerDiff($g_hStatusTimer) < $UI_STATUS_TIMEOUT_MS
 EndFunc
 
-; Clé bon marché : concat de scalaires déjà en mémoire (doc §7.3).
-Func Ui_BuildCacheKey()
-    Local $sStatus = ""
-    If Ui_IsStatusVisible() Then $sStatus = $g_iStatusKind & ":" & $g_sStatusText
+; Géométrie commune à toutes les clés de zone (un resize invalide tout).
+Func Ui_KeyGeometry()
+    Return $g_iRenderW & "x" & $g_iRenderH & "/" & $g_iLayoutSourceH & "/" & $g_iLayoutSamplesH
+EndFunc
+
+Func Ui_KeyTopBar()
+    Return Ui_KeyGeometry() & "|" & $g_iHoverButton & "|" & (App_IsAnalyzeReady() ? 1 : 0) _
+            & "|" & $g_bAnalyzing & "|" & $g_bSrcOpen & "|" & $g_bSrcPlaying
+EndFunc
+
+Func Ui_KeySource()
     ; Phase des points animés pendant l'extraction (change ~2x/s)
     Local $iExtractPhase = -1
     If $g_bExtracting Then $iExtractPhase = Mod(Int(TimerDiff($g_hExtractTimer) / 400), 4)
-    Return $g_iRenderW & "|" & $g_iRenderH & "|" & $g_iHoverButton & "|" _
-            & $g_sSourcePath & "|" & $g_sSourceWav & "|" & $g_fSourceDuration & "|" & $iExtractPhase & "|" _
-            & $g_iWaveVersion & "|" & Waveform_Progress() & "|" & $g_fViewStart & "|" & $g_fViewDur & "|" _
-            & $g_fWaveYZoom & "|" _
-            & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
-            & (App_IsAnalyzeReady() ? 1 : 0) & "|" & $sStatus & "|" _
-            & $g_bAnalyzing & "|" & $g_iEngineProgress & "|" & $g_iResultsVersion & "|" _
-            & $g_sEngineLastLine & "|" & $g_iHoverBlock & "|" _
-            & ($g_iHoverBlock >= 0 ? $g_iHoverX & ":" & $g_iHoverY : "") & "|" _
-            & $g_iHoverSplitter & "|" & $g_iDragSplitter & "|" _
-            & $g_iLayoutSourceH & "|" & $g_iLayoutSamplesH & "|" _
+    Return Ui_KeyGeometry() & "|" & $g_sSourcePath & "|" & $g_sSourceWav & "|" _
+            & $g_fSourceDuration & "|" & $g_iSourceRate & "|" & $iExtractPhase & "|" _
+            & $g_iWaveVersion & "|" & Waveform_Progress() & "|" _
+            & $g_fViewStart & "|" & $g_fViewDur & "|" & $g_fWaveYZoom & "|" _
+            & $g_fThreshold & "|" & $g_bHoverThreshold & "|" & $g_bThresholdDrag
+EndFunc
+
+Func Ui_KeyTimeline()
+    Return Ui_KeyGeometry() & "|" & $g_bAnalyzing & "|" & $g_iEngineProgress & "|" _
+            & $g_sEngineLastLine & "|" & $g_iResultsVersion & "|" _
+            & $g_fViewStart & "|" & $g_fViewDur & "|" _
+            & $g_iHoverBlock & "|" & $g_iHoverLane & "|" & $g_sLastPlayed
+EndFunc
+
+Func Ui_KeySamples()
+    Return Ui_KeyGeometry() & "|" & $g_sSamplesDir & "|" & UBound($g_aSampleFiles) & "|" _
             & $g_iHoverSample & "|" & $g_iSamplesScroll & "|" & $g_bSamplesMore & "|" _
-            & $g_iHoverLane & "|" & $g_sLastPlayed & "|" _
-            & $g_bSrcOpen & "|" & $g_bSrcPlaying & "|" _
-            & Round(Player_Position(), 2) ; tête de lecture : 50 redraws/s max
+            & $g_sLastPlayed
+EndFunc
+
+; Éléments dessinés hors cache, directement sur le backbuffer.
+Func Ui_KeyOverlay()
+    Local $sStatus = ""
+    If Ui_IsStatusVisible() Then $sStatus = $g_iStatusKind & ":" & $g_sStatusText
+    Return $sStatus & "|" & $g_iHoverSplitter & "|" & $g_iDragSplitter & "|" _
+            & $g_iHoverBlock & "|" & $g_iHoverLane & "|" _
+            & (($g_iHoverBlock >= 0 Or $g_iHoverLane >= 0) ? $g_iHoverX & ":" & $g_iHoverY : "") & "|" _
+            & $g_bSrcOpen & "|" & $g_bScrubDrag & "|" _
+            & Round(Player_Position(), $g_bScrubDrag ? 3 : 2) ; scrub : suivi au pixel
+EndFunc
+
+; Clé bon marché : concat de scalaires déjà en mémoire (doc §7.3).
+Func Ui_BuildCacheKey()
+    Return Ui_KeyTopBar() & "#" & Ui_KeySource() & "#" & Ui_KeyTimeline() & "#" _
+            & Ui_KeySamples() & "#" & Ui_KeyOverlay()
 EndFunc
 
 Func Ui_DrawFrame()
@@ -181,17 +236,93 @@ Func Ui_DrawFrame()
     Ui_Redraw()
 EndFunc
 
+; Invalide tous les caches (backbuffer neuf après un resize, mode capture).
+Func Ui_InvalidateAll()
+    $g_sUiCacheKey = ""
+    Local $iZ
+    For $iZ = 0 To $UI_ZONE_COUNT - 1
+        $g_aZoneKey[$iZ] = ""
+    Next
+EndFunc
+
 ; --- Dessin ----------------------------------------------------------------
 
+; Chaque zone vit dans son propre bitmap de cache : le survol de la
+; bibliothèque ne reconstruit plus la waveform ni la timeline (doc §7.3).
 Func Ui_Redraw()
     _GDIPlus_GraphicsClear($g_hGfx, $UI_COLOR_BG)
-    Ui_DrawTopBar()
-    Ui_DrawSourceZone()
-    Ui_DrawTimelineZone()
-    Ui_DrawSamplesZone()
+    Ui_DrawZone($UI_ZONE_TOPBAR, "Ui_DrawTopBar", Ui_KeyTopBar(), $g_aRectTopBar)
+    Ui_DrawZone($UI_ZONE_SOURCE, "Ui_DrawSourceZone", Ui_KeySource(), $g_aRectSource)
+    Ui_DrawZone($UI_ZONE_TIMELINE, "Ui_DrawTimelineZone", Ui_KeyTimeline(), $g_aRectTimeline)
+    Ui_DrawZone($UI_ZONE_SAMPLES, "Ui_DrawSamplesZone", Ui_KeySamples(), $g_aRectSamples)
+    Ui_DrawPlayheads() ; hors cache : la lecture ne redessine aucune zone
     Ui_DrawSplitters()
     Ui_DrawStatusBar()
     Ui_DrawTooltips() ; en dernier : toujours au-dessus du reste
+EndFunc
+
+; Redessine la zone dans son bitmap si sa clé a changé, puis la blitte.
+; Le cache garde les coordonnées absolues (transform de translation) : les
+; fonctions de dessin restent inchangées.
+Func Ui_DrawZone($iZone, $sDrawFunc, $sKey, $aRect)
+    Local $iW = $aRect[2] + $UI_ZONE_PAD
+    Local $iH = $aRect[3] + $UI_ZONE_PAD
+    If $iW < 1 Or $iH < 1 Then Return
+    If $g_aZoneBmp[$iZone] = 0 Or $g_aZoneW[$iZone] <> $iW Or $g_aZoneH[$iZone] <> $iH Then
+        Ui_ZoneDispose($iZone)
+        $g_aZoneBmp[$iZone] = _GDIPlus_BitmapCreateFromScan0($iW, $iH, $GDIP_PXF32PARGB)
+        $g_aZoneGfx[$iZone] = _GDIPlus_ImageGetGraphicsContext($g_aZoneBmp[$iZone])
+        Render_ApplyModes($g_aZoneGfx[$iZone]) ; un graphics neuf oublie les modes (doc §3)
+        $g_aZoneW[$iZone] = $iW
+        $g_aZoneH[$iZone] = $iH
+        $g_aZoneKey[$iZone] = "" ; force la reconstruction
+    EndIf
+    If $sKey <> $g_aZoneKey[$iZone] Then
+        $g_aZoneKey[$iZone] = $sKey
+        Local $hPrevGfx = $g_hGfx
+        $g_hGfx = $g_aZoneGfx[$iZone]
+        _GDIPlus_GraphicsClear($g_hGfx, $UI_COLOR_BG)
+        _GDIPlus_GraphicsTranslateTransform($g_hGfx, -$aRect[0], -$aRect[1])
+        Call($sDrawFunc)
+        _GDIPlus_GraphicsResetTransform($g_hGfx)
+        $g_hGfx = $hPrevGfx
+    EndIf
+    ; Cache opaque : SourceCopy, pas de blend par pixel (doc §5)
+    _GDIPlus_GraphicsSetCompositingMode($g_hGfx, 1)
+    _GDIPlus_GraphicsDrawImageRect($g_hGfx, $g_aZoneBmp[$iZone], $aRect[0], $aRect[1], $iW, $iH)
+    _GDIPlus_GraphicsSetCompositingMode($g_hGfx, 0) ; restaurer SourceOver
+EndFunc
+
+Func Ui_ZoneDispose($iZone)
+    If $g_aZoneGfx[$iZone] <> 0 Then
+        _GDIPlus_GraphicsDispose($g_aZoneGfx[$iZone]) ; toujours le Graphics AVANT son bitmap
+        $g_aZoneGfx[$iZone] = 0
+    EndIf
+    If $g_aZoneBmp[$iZone] <> 0 Then
+        _GDIPlus_BitmapDispose($g_aZoneBmp[$iZone])
+        $g_aZoneBmp[$iZone] = 0
+    EndIf
+    $g_aZoneW[$iZone] = 0
+    $g_aZoneH[$iZone] = 0
+    $g_aZoneKey[$iZone] = ""
+EndFunc
+
+; Têtes de lecture : dessinées sur le backbuffer par-dessus les caches, sinon
+; la lecture reconstruirait la waveform et la timeline 50 fois par seconde.
+Func Ui_DrawPlayheads()
+    If Not $g_bSrcOpen Then Return
+    If $g_bWaveReady And $g_fViewDur > 0 And $g_aRectWave[3] >= 24 Then
+        Ui_SetClip($g_aRectWave)
+        Ui_DrawPlayhead($g_aRectWave, $g_fViewStart, $g_fViewDur)
+        Ui_ResetClip()
+    EndIf
+    If $g_iTlBlocks > 0 And Not $g_bAnalyzing Then
+        Local $fViewStart, $fViewDur
+        Ui_GetTimelineView($fViewStart, $fViewDur)
+        Ui_SetClip($g_aRectTlBlocks)
+        Ui_DrawPlayhead($g_aRectTlBlocks, $fViewStart, $fViewDur)
+        Ui_ResetClip()
+    EndIf
 EndFunc
 
 ; Poignées de redimensionnement : trait discret quand survolé ou tiré.
@@ -211,7 +342,7 @@ EndFunc
 Func Ui_DrawTopBar()
     Local $aR = $g_aRectTopBar
     _GDIPlus_GraphicsFillRect($g_hGfx, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushTopBar)
-    _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0], $aR[3] - 1, $aR[0] + $aR[2], $aR[3] - 1, $g_hPenBorder)
+    _GDIPlus_GraphicsDrawLine($g_hGfx, $aR[0], $aR[3], $aR[0] + $aR[2], $aR[3], $g_hPenBorder)
     Ui_DrawText("SampleTracker", $g_hFontTitle, 16, 0, 300, $aR[3], $g_hBrushText, $g_hFmtLeft)
     Local $i
     For $i = 0 To $BTN_COUNT - 1
@@ -253,6 +384,8 @@ Func Ui_DrawSourceZone()
     Local $aR = $g_aRectSource
     Ui_DrawPanel($aR)
     Ui_DrawText("SOURCE", $g_hFontZone, $aR[0] + 14, $aR[1] + 4, 200, 20, $g_hBrushMuted, $g_hFmtLeft)
+    ; Réglette du seuil : réglable même sans source chargée
+    Ui_DrawThreshold()
     If $g_sSourcePath = "" Then
         Ui_DrawText("Glisser un fichier MP3 / WAV / MP4 ici, ou utiliser « Ouvrir source »", _
                 $g_hFontNormal, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushMuted, $g_hFmtCenterWrap)
@@ -289,6 +422,31 @@ Func Ui_DrawSourceZone()
     Ui_DrawWaveform()
 EndFunc
 
+; Réglette du seuil de détection : libellé + valeur, piste remplie jusqu'au
+; curseur. La valeur est transmise au moteur (--threshold) à l'analyse
+; suivante et persistée dans l'INI.
+Func Ui_DrawThreshold()
+    Local $aR = $g_aRectThreshold
+    If $aR[2] < 40 Then Return
+    Local $bActive = ($g_bHoverThreshold Or $g_bThresholdDrag)
+    Ui_DrawText("SEUIL", $g_hFontSmall, $aR[0], $aR[1] - 18, $aR[2], 16, _
+            $g_hBrushMuted, $g_hFmtLeft)
+    Ui_DrawText(StringFormat("%.2f", $g_fThreshold), $g_hFontSmall, $aR[0], $aR[1] - 18, _
+            $aR[2], 16, $bActive ? $g_hBrushAccent : $g_hBrushText, $g_hFmtRight)
+    ; Piste + portion active jusqu'au curseur
+    Local $iThumbX = Layout_ThresholdThumbX()
+    _GDIPlus_GraphicsFillRect($g_hGfx, $aR[0], $aR[1] + 3, $aR[2], 4, $g_hBrushWaveBg)
+    _GDIPlus_GraphicsFillRect($g_hGfx, $aR[0], $aR[1] + 3, $iThumbX - $aR[0], 4, _
+            $bActive ? $g_hBrushAccent : $g_hBrushScrollThumb)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $aR[0], $aR[1] + 3, _
+            $aR[2] - 1 + $UI_BORDER_GROW, 4 - 1 + $UI_BORDER_GROW, $g_hPenBorder)
+    ; Curseur
+    _GDIPlus_GraphicsFillRect($g_hGfx, $iThumbX - 3, $aR[1] - 1, 6, $aR[3] + 2, _
+            $bActive ? $g_hBrushAccent : $g_hBrushButtonHover)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $iThumbX - 3, $aR[1] - 1, _
+            6 - 1 + $UI_BORDER_GROW, $aR[3] + 2 - 1 + $UI_BORDER_GROW, $g_hPenBorder)
+EndFunc
+
 ; Trait vertical séparant la colonne de libellés de la zone de tracé.
 Func Ui_DrawTrackSeparator($aZoneRect)
     Local $iX = $aZoneRect[0] + $TL_LABEL_W - 6
@@ -310,7 +468,8 @@ Func Ui_DrawWaveform()
     Local $aR = $g_aRectWave
     If $aR[3] < 24 Then Return
     _GDIPlus_GraphicsFillRect($g_hGfx, $aR[0], $aR[1], $aR[2], $aR[3], $g_hBrushWaveBg)
-    _GDIPlus_GraphicsDrawRect($g_hGfx, $aR[0], $aR[1], $aR[2] - 1, $aR[3] - 1, $g_hPenBorder)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $aR[0], $aR[1], _
+            $aR[2] - 1 + $UI_BORDER_GROW, $aR[3] - 1 + $UI_BORDER_GROW, $g_hPenBorder)
 
     If $g_bWaveComputing Then
         Ui_DrawText("Calcul de la waveform… " & Waveform_Progress() & " %", $g_hFontSmall, _
@@ -410,9 +569,8 @@ Func Ui_DrawWaveform()
     EndIf
 
     Ui_DrawRuler($aR[0], $aR[1], $aR[2], $iRulerH)
-    ; Tête de lecture par-dessus la waveform
-    Ui_DrawPlayhead($aR, $g_fViewStart, $g_fViewDur)
     Ui_ResetClip()
+    ; La tête de lecture est dessinée hors cache (Ui_DrawPlayheads)
 EndFunc
 
 ; Trait vertical de la tête de lecture + petit repère en haut.
@@ -580,23 +738,25 @@ Func Ui_DrawTimelineTracks()
                         (($iHatch + $iBH) > $iX2) ? $iX2 : $iHatch + $iBH, _
                         (($iHatch + $iBH) > $iX2) ? $iBY + ($iX2 - $iHatch) : $iBY + $iBH, $g_hPenUnknown)
             Next
-            _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1 - 1, $iBH - 1, $g_hPenUnknown)
+            _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, _
+                    $iX2 - $iX1 - 1 + $UI_BORDER_GROW, $iBH - 1 + $UI_BORDER_GROW, $g_hPenUnknown)
         Else
             _GDIPlus_GraphicsFillRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1, $iBH, _
                     $g_aBrushPalette[$g_aTlLaneColor[$iLane]])
-            _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1 - 1, $iBH - 1, $g_hPenBorder)
+            _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, _
+                    $iX2 - $iX1 - 1 + $UI_BORDER_GROW, $iBH - 1 + $UI_BORDER_GROW, $g_hPenBorder)
         EndIf
         If $i = $g_iHoverBlock Then _
-                _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, $iX2 - $iX1 - 1, $iBH - 1, $g_hPenBlockHover)
+                _GDIPlus_GraphicsDrawRect($g_hGfx, $iX1, $iBY, _
+                    $iX2 - $iX1 - 1 + $UI_BORDER_GROW, $iBH - 1 + $UI_BORDER_GROW, $g_hPenBlockHover)
         If $iX2 - $iX1 > 44 Then
             Ui_DrawText(" " & Ui_EllipsizeEnd($g_aTlBlocks[$i][6], Int(($iX2 - $iX1) / 7)), _
                     $g_hFontSmall, $iX1, $iBY, $iX2 - $iX1, $iBH, $g_hBrushText, $g_hFmtLeft)
         EndIf
     Next
 
-    Ui_DrawPlayhead($aB, $fViewStart, $fViewDur)
     Ui_ResetClip()
-
+    ; La tête de lecture est dessinée hors cache (Ui_DrawPlayheads)
 EndFunc
 
 ; Infobulles : dessinées tout à la fin de la frame (Ui_Redraw), donc
@@ -756,7 +916,8 @@ EndFunc
 
 Func Ui_DrawPanel($aRect)
     _GDIPlus_GraphicsFillRect($g_hGfx, $aRect[0], $aRect[1], $aRect[2], $aRect[3], $g_hBrushPanel)
-    _GDIPlus_GraphicsDrawRect($g_hGfx, $aRect[0], $aRect[1], $aRect[2] - 1, $aRect[3] - 1, $g_hPenBorder)
+    _GDIPlus_GraphicsDrawRect($g_hGfx, $aRect[0]+1, $aRect[1]+1, _
+            $aRect[2] - 2 + $UI_BORDER_GROW, $aRect[3] - 2 + $UI_BORDER_GROW, $g_hPenBorder)
 EndFunc
 
 Func Ui_DrawText($sText, $hFont, $iX, $iY, $iW, $iH, $hBrush, $hFormat)
@@ -779,6 +940,11 @@ EndFunc
 ; --- Disposer (registre §11, idempotent) -----------------------------------
 
 Func Ui_Dispose()
+    Local $iZ
+    For $iZ = 0 To $UI_ZONE_COUNT - 1
+        Ui_ZoneDispose($iZ)
+    Next
+
     If $g_hFontTitle <> 0 Then _GDIPlus_FontDispose($g_hFontTitle)
     If $g_hFontNormal <> 0 Then _GDIPlus_FontDispose($g_hFontNormal)
     If $g_hFontSmall <> 0 Then _GDIPlus_FontDispose($g_hFontSmall)

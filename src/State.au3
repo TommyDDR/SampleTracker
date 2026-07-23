@@ -29,14 +29,19 @@ Global $g_sUiCacheKey = ""      ; clé du cache UI plein écran (§7.3 du doc re
 ; Interactions waveform (phase 3)
 Global $g_iWheelDelta = 0       ; accumulé par WM_MOUSEWHEEL, consommé dans la boucle
 Global $g_iWheelDeltaCtrl = 0   ; idem avec Ctrl enfoncé (zoom amplitude)
-Global $g_bWaveDragging = False
+Global $g_bWaveDragging = False ; pan de la vue (bouton droit)
 Global $g_iDragStartX = 0
 Global $g_fDragStartView = 0
 Global $g_hLastClickTimer = 0   ; détection double-clic
 Global $g_iLastClickX = -1000
 Global $g_iLastClickY = -1000
-Global $g_iDragRefX = 0         ; origine x du rect où le drag a commencé
-Global $g_iDragRefW = 1         ; largeur du rect où le drag a commencé (sec/px)
+Global $g_iDragRefW = 1         ; largeur du rect où le pan a commencé (sec/px)
+
+; Glisser gauche sur la waveform ou la timeline : déplacement continu de la
+; tête de lecture (scrub). Le rect de référence donne l'échelle temporelle.
+Global $g_bScrubDrag = False
+Global $g_iScrubRefX = 0
+Global $g_iScrubRefW = 1
 
 ; Survol timeline (phase 6)
 Global $g_iHoverBlock = -1
@@ -58,6 +63,10 @@ Global Const $CURSOR_SIZENS = 11 ; double flèche verticale : poignée
 Global $g_iHoverSample = -1
 Global $g_iSamplesScroll = 0    ; première ligne affichée dans la grille
 Global $g_bSamplesMore = False  ; ligne « + N autres… » survolée
+
+; Réglette du seuil de détection (colonne gauche de la zone source)
+Global $g_bHoverThreshold = False
+Global $g_bThresholdDrag = False
 
 ; Survol d'un libellé de piste dans la timeline (nom complet en infobulle)
 Global $g_iHoverLane = -1

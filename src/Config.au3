@@ -36,6 +36,9 @@ Func Config_Load()
     $g_iLayoutSamplesH = Int(IniRead($g_sIniPath, "layout", "samples_h", $LAYOUT_SAMPLES_DEFAULT_H))
     Layout_ClampHeights()
 
+    Engine_SetThreshold(Number(IniRead($g_sIniPath, "engine", "threshold", _
+            $ENGINE_THRESHOLD_DEFAULT)))
+
     $g_sLastSource = IniRead($g_sIniPath, "session", "source", "")
     $g_sLastSamples = IniRead($g_sIniPath, "session", "samples", "")
 EndFunc
@@ -74,6 +77,7 @@ Func Config_Save()
     EndIf
     IniWrite($g_sIniPath, "layout", "source_h", $g_iLayoutSourceH)
     IniWrite($g_sIniPath, "layout", "samples_h", $g_iLayoutSamplesH)
+    IniWrite($g_sIniPath, "engine", "threshold", StringFormat("%.2f", $g_fThreshold))
     IniWrite($g_sIniPath, "session", "source", $g_sSourcePath)
     IniWrite($g_sIniPath, "session", "samples", $g_sSamplesDir)
 EndFunc
