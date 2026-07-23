@@ -7,6 +7,14 @@
 ; Aucune dépendance UI : module testable en CLI.
 ; ---------------------------------------------------------------------------
 
+; Seuil de détection (corrélation normalisée) réglable depuis l'IHM et
+; persisté dans l'INI. En dessous, le moteur arrête le matching et le reste
+; du résidu part en blocs « INCONNU ».
+Global Const $ENGINE_THRESHOLD_MIN = 0.1
+Global Const $ENGINE_THRESHOLD_MAX = 0.95
+Global Const $ENGINE_THRESHOLD_DEFAULT = 0.6
+Global $g_fThreshold = $ENGINE_THRESHOLD_DEFAULT
+
 Global $g_sPythonPath = ""
 Global $g_iEnginePid = 0
 Global $g_sEngineBuf = ""
@@ -21,6 +29,17 @@ Global $g_aDetections[0][6] ; sample, start, duration, gain, gain_db, confidence
 Global $g_iDetections = 0
 Global $g_aUnknowns[0][3]   ; start, duration, rms_db
 Global $g_iUnknowns = 0
+
+Func Engine_ClampThreshold($fValue)
+    If $fValue < $ENGINE_THRESHOLD_MIN Then Return $ENGINE_THRESHOLD_MIN
+    If $fValue > $ENGINE_THRESHOLD_MAX Then Return $ENGINE_THRESHOLD_MAX
+    Return $fValue
+EndFunc
+
+; Applique un nouveau seuil (arrondi au centième, comme affiché).
+Func Engine_SetThreshold($fValue)
+    $g_fThreshold = Round(Engine_ClampThreshold($fValue), 2)
+EndFunc
 
 Func Engine_LocatePython()
     If $g_sPythonPath <> "" Then Return $g_sPythonPath
@@ -49,7 +68,8 @@ Func Engine_Start($sSourceWav, $sSamplesDir, $sOutJson, $sOutTsv, $sScript = "")
     $g_sEngineLastLine = ""
     Local $sCmd = $sPy & ' "' & $sScript & '" --source "' & $sSourceWav _
             & '" --samples "' & $sSamplesDir & '" --output "' & $sOutJson _
-            & '" --tsv "' & $sOutTsv & '" --progress'
+            & '" --tsv "' & $sOutTsv & '" --threshold ' _
+            & StringFormat("%.2f", Engine_ClampThreshold($g_fThreshold)) & ' --progress'
     $g_iEnginePid = Run($sCmd, "", @SW_HIDE, 0x6) ; $STDOUT_CHILD + $STDERR_CHILD
     If $g_iEnginePid = 0 Then Return SetError(3, 0, 0)
     Return 1

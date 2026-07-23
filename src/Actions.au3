@@ -28,6 +28,7 @@ Func Action_LoadSource($sPath)
     EndIf
     Ffmpeg_Cancel() ; annule une extraction précédente éventuelle
     Action_AbortAnalysis()
+    Player_CloseSource()
     Waveform_Reset()
     $g_sSourcePath = $sPath
     $g_sSourceWav = ""
@@ -61,6 +62,7 @@ Func Action_PollExtraction()
     $g_fSourceDuration = $fDuration
     $g_iSourceRate = $iRate
     Waveform_Start($g_sSourceWav) ; calcul des pics en arrière-plan
+    Player_OpenSource($g_sSourceWav)
     Ui_SetStatus(StringFormat("Source prête : %s (%.2f s)", Action_FileName($g_sSourcePath), $fDuration), 1)
 EndFunc
 
@@ -91,6 +93,8 @@ Func Action_LoadSamplesDir($sDir)
     Action_AbortAnalysis()
     $g_aSampleFiles = $aNames
     $g_sSamplesDir = $sDir
+    $g_iSamplesScroll = 0
+    $g_sLastPlayed = ""
     Ui_SetStatus($aFiles[0] & " samples chargés depuis " & $sDir, 1)
 EndFunc
 
@@ -141,6 +145,11 @@ Func Action_PollEngine()
             Ui_SetStatus("Résultats illisibles (TSV) : " & $g_sEngineTsv, 2)
         Else
             Timeline_Rebuild()
+            ; La timeline se réduit au nombre de pistes ; la place gagnée va
+            ; à la bibliothèque.
+            Local $iRowH, $iVisible
+            Timeline_LayoutRows($g_aRectTlBlocks, $iRowH, $iVisible)
+            Layout_FitTimelineToLanes($g_iTlLanes, $iRowH)
             Ui_SetStatus(StringFormat("Analyse terminée en %.1f s : %d détection(s), %d inconnu(s)", _
                     TimerDiff($g_hAnalyzeTimer) / 1000, $g_iDetections, $g_iUnknowns), 1)
         EndIf
@@ -160,6 +169,31 @@ Func Action_AbortAnalysis()
     Timeline_Clear()
     $g_iHoverBlock = -1
     $g_iResultsVersion += 1
+EndFunc
+
+; --- Lecture audio ---------------------------------------------------------
+
+; Prévisualise un sample de la bibliothèque (chemin relatif au dossier).
+Func Action_PreviewSample($sRelName)
+    If $g_sSamplesDir = "" Or $sRelName = "" Then Return
+    Player_PlaySample($g_sSamplesDir & "\" & $sRelName)
+    If @error Then
+        Ui_SetStatus("Lecture impossible : " & $sRelName, 2)
+        Return
+    EndIf
+    ; Reste mis en évidence jusqu'à la lecture d'un autre sample
+    $g_sLastPlayed = $sRelName
+    Ui_SetStatus("Lecture : " & $sRelName, 0)
+EndFunc
+
+; --- Restauration de session (INI) -----------------------------------------
+
+; Recharge la dernière source et la dernière bibliothèque si elles existent
+; encore. Silencieux : une entrée obsolète est ignorée, pas d'erreur affichée.
+Func Action_RestoreSession()
+    If $g_sLastSamples <> "" And StringInStr(FileGetAttrib($g_sLastSamples), "D") Then _
+            Action_LoadSamplesDir($g_sLastSamples)
+    If $g_sLastSource <> "" And FileExists($g_sLastSource) Then Action_LoadSource($g_sLastSource)
 EndFunc
 
 ; --- Helpers ---------------------------------------------------------------

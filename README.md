@@ -49,6 +49,8 @@ AutoIt3.exe tests\Phase2Test.au3
 AutoIt3.exe tests\Phase3Test.au3
 AutoIt3.exe tests\Phase5Test.au3
 AutoIt3.exe tests\Phase6Test.au3
+AutoIt3.exe tests\PrefsTest.au3
+AutoIt3.exe tests\CursorTest.au3
 python engine\test_engine.py
 ```
 
@@ -86,7 +88,58 @@ Précision mesurée (mix synthétique) : position < 10 ms, gain < 0.3 dB (WAV)
   aussi actifs sur la zone de blocs).
 - Waveform (phase 3) : calculée en arrière-plan après extraction ; molette = zoom
   autour du curseur, glisser = déplacement, double-clic = vue complète.
+- Lecture : boutons « Lecture / Pause » et « Stop » dans la barre du haut.
+  Un clic dans la waveform (ou la timeline) place la tête de lecture ;
+  « Stop » y revient. Le trait jaune suit la lecture.
+- Écouter un sample : clic sur un nom dans la bibliothèque, sur un bloc de
+  détection ou sur un libellé de piste dans la timeline. La prévisualisation
+  n'interrompt pas la lecture de la source (canaux MCI distincts). Le dernier
+  sample joué reste en vert jusqu'au suivant, et sa piste est surlignée.
+- Bibliothèque : liste défilante (molette, barre à droite) ; « + N autres… »
+  fait défiler d'une page.
+- Survol d'un bloc ou d'un libellé de piste : infobulle avec le nom complet,
+  toujours dessinée au-dessus des autres panneaux.
+- Curseur souris : main sur les zones cliquables (waveform, timeline, libellés
+  de pistes, boutons, samples), double flèche verticale sur les poignées de
+  redimensionnement, flèche ailleurs.
+- Fin d'analyse : la timeline se réduit au nombre de pistes détectées et la
+  bibliothèque récupère la place gagnée.
+- Redimensionner les zones : glisser l'espace entre deux blocs (le curseur
+  passe en double flèche au survol). Les hauteurs sont conservées.
 - `F3` : profiler (temps par section dans le titre de la fenêtre).
+
+La waveform et la timeline partagent la même colonne de libellés à gauche et la
+même échelle temporelle : un bloc de détection tombe exactement sous la portion
+d'onde correspondante. Tout tracé est borné à sa zone par clipping GDI+ (rien ne
+peut déborder sur les panneaux voisins).
+
+## Capture de diagnostic
+
+Le rendu allant directement dans le DC de la fenêtre, une capture d'écran
+classique ne voit rien. Mode dédié :
+
+```
+AutoIt3.exe SampleTracker.au3 --shot vue.png [--analyze] [--played nom.wav] [--hover x y]
+```
+
+Recharge la dernière session, attend que tout soit prêt (extraction, waveform,
+analyse si `--analyze`), enregistre le backbuffer en PNG, puis quitte.
+
+## Préférences (`SampleTracker.ini`)
+
+Créé à côté du script au premier lancement (non versionné), relu au démarrage :
+
+```ini
+[window]
+x, y, w, h, maximized      ; géométrie (position hors écran ignorée)
+[layout]
+source_h, samples_h        ; hauteurs des zones ajustables
+[session]
+source, samples            ; dernière source et dernière bibliothèque
+```
+
+La dernière session est rechargée automatiquement ; une entrée pointant vers un
+fichier ou un dossier disparu est ignorée silencieusement.
 
 Note : le drag & drop depuis l'Explorateur ne fonctionne pas si l'application est
 lancée en administrateur (isolation UIPI de Windows).
